@@ -4,3 +4,4 @@ oauth2client
 requests
 Pillow
 python-dateutil
+aiohttp

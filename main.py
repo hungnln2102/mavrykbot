@@ -7,6 +7,10 @@ from menu import show_outer_menu, show_main_selector
 from add_order import add_order_conv, start_add, cancel_add
 from delete_order import get_delete_order_conversation_handler, get_delete_callbacks, start_delete_order
 
+import asyncio
+from aiohttp import web
+import threading
+
 AUTHORIZED_USER_ID = 510811276
 
 def user_only_filter(func):
@@ -60,7 +64,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.warning(f"Lỗi khi answer callback: {e}")
 
-def main():
+def start_bot():
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", start))
@@ -77,5 +81,14 @@ def main():
     logger.info("🤖 Bot đã bắt đầu chạy...")
     application.run_polling()
 
+async def healthcheck(request):
+    return web.Response(text="Bot is alive!")
+
+def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", healthcheck)
+    web.run_app(app, port=8080)
+
 if __name__ == "__main__":
-    main()
+    threading.Thread(target=start_bot, daemon=True).start()
+    start_web_server()
