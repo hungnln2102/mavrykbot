@@ -11,10 +11,10 @@ def connect_to_sheet():
             "https://spreadsheets.google.com/feeds",
             "https://www.googleapis.com/auth/drive"
         ]
-        creds = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scope)
+        creds_dict = json.loads(os.environ["GOOGLE_CREDS"])
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
-
-        spreadsheet = client.open(SHEET_NAME)  # ✅ Trả về cả file
+        spreadsheet = client.open(SHEET_NAME)
         return spreadsheet
     except Exception as e:
         logger.error(f"Lỗi kết nối đến Google Sheet: {str(e)}")
