@@ -1,3 +1,4 @@
+
 from telegram import Update
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, ContextTypes,
@@ -81,12 +82,10 @@ async def main():
     for handler in get_delete_callbacks():
         application.add_handler(handler)
 
-    # Start Telegram bot
     await application.initialize()
     await application.start()
     bot = application.bot
 
-    # Aiohttp web server
     app = web.Application()
     app["application"] = application
     app["bot"] = bot
