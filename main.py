@@ -6,10 +6,8 @@ from view_due_orders import view_expired_orders, show_expired_order
 from menu import show_outer_menu, show_main_selector
 from add_order import add_order_conv, start_add, cancel_add
 from delete_order import get_delete_order_conversation_handler, get_delete_callbacks, start_delete_order
-
 import asyncio
 from aiohttp import web
-import threading
 
 AUTHORIZED_USER_ID = 510811276
 
@@ -64,31 +62,36 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.warning(f"Lỗi khi answer callback: {e}")
 
-def start_bot():
-    application = Application.builder().token(BOT_TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("menu", start))
-    application.add_handler(add_order_conv)
-    application.add_handler(CallbackQueryHandler(cancel_add, pattern="^cancel_add$"))
-    application.add_handler(CallbackQueryHandler(start_add, pattern="^add$"))
-    application.add_handler(CallbackQueryHandler(button_callback,
-        pattern='^(menu_shop|menu_customer|expired|next_expired|prev_expired|back_to_menu|update|delete)$'
-    ))
-    application.add_handler(get_delete_order_conversation_handler())
-    for handler in get_delete_callbacks():
-        application.add_handler(handler)
-
-    logger.info("🤖 Bot đã bắt đầu chạy...")
-    application.run_polling()
-
 async def healthcheck(request):
     return web.Response(text="Bot is alive!")
 
-def start_web_server():
-    app = web.Application()
-    app.router.add_get("/", healthcheck)
-    web.run_app(app, port=8080)
+async def start():
+    app = Application.builder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("menu", start))
+    app.add_handler(add_order_conv)
+    app.add_handler(CallbackQueryHandler(cancel_add, pattern="^cancel_add$"))
+    app.add_handler(CallbackQueryHandler(start_add, pattern="^add$"))
+    app.add_handler(CallbackQueryHandler(button_callback,
+        pattern='^(menu_shop|menu_customer|expired|next_expired|prev_expired|back_to_menu|update|delete)$'
+    ))
+    app.add_handler(get_delete_order_conversation_handler())
+    for handler in get_delete_callbacks():
+        app.add_handler(handler)
+
+    logger.info("🤖 Bot đã bắt đầu chạy...")
+
+    # Tạo web server nhỏ (port 8080)
+    aio_app = web.Application()
+    aio_app.router.add_get("/", healthcheck)
+
+    # Chạy bot và server song song
+    runner = web.AppRunner(aio_app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 8080)
+    await site.start()
+
+    await app.run_polling()
 
 if __name__ == "__main__":
-    threading.Thread(target=start_bot, daemon=True).start()
-    start_web_server()
+    asyncio.run(start())
