@@ -1,91 +1,90 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    ConversationHandler, CommandHandler, MessageHandler,
-    CallbackQueryHandler, filters, ContextTypes
+    ConversationHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 )
-from telegram.helpers import escape_markdown
 from utils import connect_to_sheet
-from menu import show_main_selector
+from menu import show_outer_menu
+from config import logger
 
-# Trạng thái hội thoại
-ASK_ORDER_ID, CONFIRM_DELETE = range(2)
+ASK_MA_DON, XAC_NHAN_XOA = range(2)
 
-# Bắt đầu quy trình xóa đơn
+# Bắt đầu xóa đơn
 async def start_delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = "📌 Vui lòng nhập *Mã Đơn Hàng* bạn muốn xóa:"
-    if update.callback_query:
-        await update.callback_query.answer()
-        await update.callback_query.edit_message_text(message, parse_mode="MarkdownV2")
-    elif update.message:
-        await update.message.reply_text(message, parse_mode="MarkdownV2")
-    return ASK_ORDER_ID
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("🗑️ Vui lòng nhập *Mã đơn hàng* bạn muốn xóa:", parse_mode="Markdown")
+    return ASK_MA_DON
 
-# Nhập mã đơn hàng → kiểm tra trong sheet
-async def handle_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    ma_don_raw = update.message.text.strip()
+# Nhận mã đơn và xác nhận xóa
+async def nhan_ma_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ma_don = update.message.text.strip()
     sheet = connect_to_sheet()
-    all_data = sheet.get_all_values()
 
-    for index, row in enumerate(all_data[1:], start=2):  # Bỏ dòng tiêu đề
-        if row[0] == ma_don_raw:
-            # Lưu thông tin để dùng khi xác nhận xóa
-            context.user_data["row_to_delete"] = index
-            context.user_data["ma_don"] = ma_don_raw
+    try:
+        ma_don_list = sheet.col_values(1)  # Duyệt cột A (mã đơn)
+        for i, ma in enumerate(ma_don_list):
+            if ma == ma_don:
+                row_index = i + 1
+                row_data = sheet.row_values(row_index)
 
-            # Escape dữ liệu
-            ma_don = escape_markdown(ma_don_raw, version=2)
-            ten_san_pham = escape_markdown(row[0], version=2)
-            thong_tin_don = escape_markdown(row[1], version=2)
-            khach_hang = escape_markdown(row[2], version=2)
+                context.user_data["row_index"] = row_index
+                context.user_data["ma_don"] = ma_don
 
-            # Hiển thị xác nhận
-            text = (
-                f"⚠️ *Xác nhận xóa đơn hàng:*\n"
-                f"📦 Mã đơn: `{ma_don}`\n"
-                f"🔹 Sản phẩm: {ten_san_pham}\n"
-                f"🔹 Thông tin đơn: {thong_tin_don}\n"
-                f"🔹 Khách hàng: {khach_hang}"
-            )
-            buttons = [
-                [InlineKeyboardButton("✅ Xác nhận xóa", callback_data="confirm_delete")],
-                [InlineKeyboardButton("🔙 Quay lại", callback_data="cancel_delete")]
-            ]
-            await update.message.reply_text(text, parse_mode="MarkdownV2", reply_markup=InlineKeyboardMarkup(buttons))
-            return CONFIRM_DELETE
+                ten_sp = row_data[0] if len(row_data) > 0 else ""
+                thong_tin = row_data[1] if len(row_data) > 1 else ""
+                khach = row_data[2] if len(row_data) > 2 else ""
 
-    # Không tìm thấy
-    await update.message.reply_text("❌ Không tìm thấy đơn hàng với mã đã nhập.")
-    return ConversationHandler.END
+                msg = (
+                    f"⚠️ Xác nhận xóa đơn:\n"
+                    f"📦 Mã đơn: `{ma_don}`\n"
+                    f"🔹 Tên sản phẩm: {ten_sp}\n"
+                    f"🔹 Thông tin: {thong_tin}\n"
+                    f"👤 Khách hàng: {khach}"
+                )
+                keyboard = [
+                    [
+                        InlineKeyboardButton("✅ Xác nhận xóa", callback_data="confirm_delete"),
+                        InlineKeyboardButton("❌ Hủy", callback_data="cancel_delete")
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=reply_markup)
+                return XAC_NHAN_XOA
 
-# Xác nhận xóa → xóa dòng khỏi Sheet
+        # Nếu không tìm thấy
+        await update.message.reply_text("❌ Không tìm thấy đơn hàng với mã bạn đã nhập.")
+        return ConversationHandler.END
+
+    except Exception as e:
+        logger.error(f"Lỗi khi tra mã đơn: {e}")
+        await update.message.reply_text("⚠️ Đã xảy ra lỗi khi truy cập Google Sheet.")
+        return ConversationHandler.END
+
+
+# Thực hiện xóa đơn
 async def confirm_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
-    row = context.user_data.get("row_to_delete")
+    row_index = context.user_data.get("row_index")
     sheet = connect_to_sheet()
-    sheet.delete_row(row)
+    sheet.delete_rows(row_index)
+    await query.edit_message_text("✅ Đơn hàng đã được *xóa thành công*.", parse_mode="Markdown")
+    return ConversationHandler.END
 
-    ma_don = escape_markdown(context.user_data["ma_don"], version=2)
-    await query.edit_message_text(
-        f"✅ Đã xóa đơn hàng `{ma_don}` thành công.",
-        parse_mode="MarkdownV2"
-    )
-    return await show_main_selector(update, context)
-
-# Quay lại menu
+# Hủy thao tác
 async def cancel_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    return await show_main_selector(update, context)
+    await show_outer_menu(update, context)
+    return ConversationHandler.END
 
-# Đăng ký hội thoại /delete
+# Trả về ConversationHandler chính
 def get_delete_order_conversation_handler():
     return ConversationHandler(
-        entry_points=[CommandHandler("delete", start_delete_order)],
+        entry_points=[CallbackQueryHandler(start_delete_order, pattern="^delete_order$")],
         states={
-            ASK_ORDER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_order_id)],
-            CONFIRM_DELETE: [
+            ASK_MA_DON: [MessageHandler(filters.TEXT & ~filters.COMMAND, nhan_ma_don)],
+            XAC_NHAN_XOA: [
                 CallbackQueryHandler(confirm_delete, pattern="^confirm_delete$"),
                 CallbackQueryHandler(cancel_delete, pattern="^cancel_delete$")
             ]
@@ -93,8 +92,9 @@ def get_delete_order_conversation_handler():
         fallbacks=[],
     )
 
-# Callback cho nút "🗑️ Xóa Đơn" từ menu
+# Trả về các callback phụ trợ khác
 def get_delete_callbacks():
     return [
-        CallbackQueryHandler(start_delete_order, pattern="^delete$")
+        CallbackQueryHandler(confirm_delete, pattern="^confirm_delete$"),
+        CallbackQueryHandler(cancel_delete, pattern="^cancel_delete$")
     ]
