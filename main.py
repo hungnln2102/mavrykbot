@@ -1,5 +1,7 @@
 
 from telegram import Update
+import os
+import logging
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, ContextTypes,
     AIORateLimiter
@@ -14,6 +16,20 @@ from aiohttp import web
 import asyncio
 
 AUTHORIZED_USER_ID = 510811276
+
+# Cấu hình log
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# ✅ Lấy token từ biến môi trường
+BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
+
+if not BOT_TOKEN:
+    raise ValueError("⚠️ TELEGRAM_TOKEN chưa được thiết lập!")
+
 
 def user_only_filter(func):
     async def wrapper(update, context):
