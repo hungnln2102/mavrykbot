@@ -1,5 +1,5 @@
 # Sử dụng image Python chính thức
-FROM python:3.13-slim
+FROM python:3.11-slim
 
 
 # Thiết lập thư mục làm việc
