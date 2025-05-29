@@ -7,4 +7,3 @@ __pycache__/
 *.log
 creds.json
 .env
-fly.toml
