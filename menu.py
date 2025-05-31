@@ -32,7 +32,7 @@ async def show_main_selector(update: Update, context: ContextTypes.DEFAULT_TYPE,
         ],
         [
             InlineKeyboardButton("⏰ Đơn Đến Hạn", callback_data='expired'),
-            InlineKeyboardButton("🗑️ Xóa Đơn", callback_data='delete')
+            InlineKeyboardButton("🗑️ Xóa Đơn", callback_data='delete_order')
         ],
         [
             InlineKeyboardButton("🔚 Kết Thúc", callback_data='back_to_menu')

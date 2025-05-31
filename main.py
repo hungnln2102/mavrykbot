@@ -26,10 +26,8 @@ logger = logging.getLogger(__name__)
 
 # ✅ Lấy token từ biến môi trường
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
-
 if not BOT_TOKEN:
     raise ValueError("⚠️ TELEGRAM_TOKEN chưa được thiết lập!")
-
 
 def user_only_filter(func):
     async def wrapper(update, context):
@@ -66,7 +64,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'update':
         await query.answer("📌 Chức năng Cập Nhật Đơn sẽ được bổ sung sau.", show_alert=True)
     elif query.data == 'delete':
-        return await start_delete_order(update, context)
+        await query.answer()  # 👉 Phản hồi để tránh lỗi
+        return  # Không xử lý gì thêm, ConversationHandler sẽ tự lo
 
     try:
         await query.answer()
@@ -107,12 +106,10 @@ async def main():
     app["bot"] = bot
     app.router.add_get("/", healthcheck)
     app.router.add_post("/webhook", handle_webhook)
-
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, port=8080)
     await site.start()
-
     logger.info("✅ Bot đã khởi động bằng webhook.")
     await asyncio.Event().wait()
 
