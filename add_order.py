@@ -540,7 +540,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info["ngay_bat_dau"],
         info["so_ngay"],
         ngay_het_han,
-        f'=IF(I{row_index}="","",I{row_index}-TODAY())',  # ✅ Gán công thức trực tiếp
+        "=IF(I{row_index}="","",I{row_index}-TODAY())",  # ✅ Gán công thức trực tiếp
         info.get("nguon", ""),
         info.get("gia_nhap", ""),
         info.get("gia_ban", ""),
