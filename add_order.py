@@ -528,8 +528,6 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🙏 *Cảm ơn quý khách đã tin tưởng và ủng hộ Mavryk Store!* ✨"
     )
     sheet = connect_to_sheet().worksheet("Test")
-    values = sheet.get_all_values()
-    row_index = len(values) + 1  # +1 vì get_all_values đếm cả header
     row_data = [
         ma_don,
         info.get("ma_chon", ""),
@@ -540,16 +538,17 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info["ngay_bat_dau"],
         info["so_ngay"],
         ngay_het_han,
-        "=IF(I{row_index}="","",I{row_index}-TODAY())",  # ✅ Gán công thức trực tiếp
+        "=IF(I=\"\",\"\",I-TODAY())",  # ✅ Công thức dùng chung
         info.get("nguon", ""),
         info.get("gia_nhap", ""),
         info.get("gia_ban", ""),
         "",
         info.get("note", ""),
         "Chưa Thanh Toán"
-    ]
+]
 
     sheet.append_row(row_data, value_input_option="USER_ENTERED")
+
     # 👉 Thêm công thức tính ngày còn lại vào cột J
     row_index = len(sheet.get_all_values())  # Dòng mới thêm vào (tính cả header)
     sheet.update_acell(f"J{row_index}", f'=IF(I{row_index}="","",I{row_index}-TODAY())')
