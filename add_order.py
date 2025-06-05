@@ -511,22 +511,21 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ngay_het_han = tinh_ngay_het_han(ngay_bat_dau_str, info.get("so_ngay", "0"))
     qr_url = f"https://img.vietqr.io/image/VPB-mavrykstore-compact2.png?amount={gia_value}&addInfo={ma_don}"
     msg = (
-        f"✅ *Đơn hàng đã được khởi tạo thành công!*\n"
-        f"📦 *Mã Đơn Hàng:* `{ma_don}`\n"
-        f"✧━━━━━Sản Phẩm━━━━━✧\n"
-        f"🔹 *Tên Sản phẩm:* {info.get('ten_san_pham', '')}\n"
-        f"🔹 *Thông tin đơn hàng:* {info.get('thong_tin_don', '')}\n"
-        + (f"📌 *Slot:* {info['slot']}\n" if info.get("slot") else "")
-        + f"📆 *Số ngày đăng ký:* {info.get('so_ngay', '')} ngày\n"
-        + f"📅 *Ngày hết hạn:* {ngay_het_han}\n"
-        + f"💰 *Giá bán:* {info.get('gia_ban', '')}\n"
-        f"✧━━━━━Thông Tin Khách Hàng━━━━━✧\n"
-        f"👤 *Tên Khách hàng:* {info.get('khach_hang', '')}\n"
-        f"🔗 *Thông tin liên hệ:* {info.get('link_khach')}\n"
-        f"✧═════• ༺༻ •═════✧\n"
-        f"Quý khách vui lòng thanh toán đơn hàng giúp Shop.\n"
-        f"Mọi vấn đề cần hỗ trợ có thể liên hệ cho Shop để được hỗ trợ ạ.\n"
-        f"Cám ơn quý khách đã tin tưởng và ủng hộ Shop.\n"
+        f"✅ *Đơn hàng `{ma_don}` đã được khởi tạo thành công!*\n\n"
+        f"✧═════• ༺ 𝐓𝐡𝐨̂𝐧𝐠 𝐓𝐢𝐧 𝐒𝐚̉𝐧 𝐏𝐡𝐚̂̉𝐦 ༻ •═════✧\n"
+        f"📌 *Tên sản phẩm:* {info.get('ten_san_pham', '')}\n"
+        f"📝 *Chi tiết:* {info.get('thong_tin_don', '')}\n"
+        + (f"🧩 *Slot:* {info['slot']}\n" if info.get("slot") else "")
+        + f"⏳ *Thời hạn:* {info.get('so_ngay', '')} ngày\n"
+        + f"📅 *Hết hạn:* {ngay_het_han}\n"
+        + f"💵 *Giá bán:* {info.get('gia_ban', '')} VNĐ\n\n"
+        f"✧═════• ༺ 𝐊𝐡𝐚́𝐜𝐡 𝐇𝐚̀𝐧𝐠 ༻ •═════✧\n"
+        f"👤 *Tên:* {info.get('khach_hang', '')}\n"
+        f"🔗 *Liên hệ:* {info.get('link_khach')}\n\n"
+        f"✧═════• ༺ 𝐓𝐡𝐨̂𝐧𝐠 𝐁𝐚́𝐨 ༻ •═════✧\n"
+        f"💬 Vui lòng thanh toán để đơn hàng được xử lý sớm nhất.\n"
+        f"📞 Mọi thắc mắc xin liên hệ với Shop để được hỗ trợ.\n"
+        f"🙏 *Cảm ơn quý khách đã tin tưởng và ủng hộ Mavryk Store!* ✨"
     )
     sheet = connect_to_sheet().worksheet("Test")
     row_data = [
@@ -534,12 +533,12 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info.get("ma_chon", ""),
         info.get("thong_tin_don", ""),
         info.get("khach_hang", ""),
-        info.get("link_khach", ""),  # 👈 chèn thêm dòng này
+        info.get("link_khach", ""),
         info.get("slot", ""),
         info["ngay_bat_dau"],
         info["so_ngay"],
         ngay_het_han,
-        "",
+        "",  # Cột J sẽ được gán công thức sau
         info.get("nguon", ""),
         info.get("gia_nhap", ""),
         info.get("gia_ban", ""),
@@ -547,6 +546,11 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info.get("note", ""),
         "Chưa Thanh Toán"
     ]
+    sheet.append_row(row_data, value_input_option="USER_ENTERED")
+    # 👉 Thêm công thức tính ngày còn lại vào cột J
+    row_index = len(sheet.get_all_values())  # Dòng mới thêm vào (tính cả header)
+    sheet.update_acell(f"J{row_index}", f'=IF(I{row_index}="","",I{row_index}-TODAY())')
+    await update.message.reply_text(msg, parse_mode="Markdown", disable_web_page_preview=True)
     # --- Ghi dữ liệu vào dòng trống đầu tiên ---
     columns_to_check = [1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 14]
     all_columns = [sheet.col_values(col) for col in columns_to_check]
