@@ -2,15 +2,18 @@
 from telegram import Update
 import os
 import logging
+from config import BOT_TOKEN, logger
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, ContextTypes,
     AIORateLimiter
 )
-from config import BOT_TOKEN, logger
-from view_due_orders import view_expired_orders, show_expired_order
+
+#Menu and Function Menu
 from menu import show_outer_menu, show_main_selector
 from add_order import add_order_conv, start_add, cancel_add
 from delete_order import get_delete_order_conversation_handler, get_delete_callbacks, start_delete_order
+from update_order import get_update_order_conversation_handler
+from view_due_orders import view_expired_orders, show_expired_order
 
 from aiohttp import web
 import asyncio
@@ -61,8 +64,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_expired_order(update, context, direction="prev")
     elif query.data == 'back_to_menu':
         await show_outer_menu(update, context)
-    elif query.data == 'update':
-        await query.answer("📌 Chức năng Cập Nhật Đơn sẽ được bổ sung sau.", show_alert=True)
     elif query.data == 'delete':
         await query.answer()  # 👉 Phản hồi để tránh lỗi
         return  # Không xử lý gì thêm, ConversationHandler sẽ tự lo
@@ -87,11 +88,12 @@ async def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", start))
     application.add_handler(add_order_conv)
+    application.add_handler(get_update_order_conversation_handler())
     application.add_handler(CallbackQueryHandler(cancel_add, pattern="^cancel_add$"))
     application.add_handler(CallbackQueryHandler(start_add, pattern="^add$"))
     application.add_handler(CallbackQueryHandler(
         button_callback,
-        pattern='^(menu_shop|menu_customer|expired|next_expired|prev_expired|back_to_menu|update|delete)$'
+        pattern='^(menu_shop|menu_customer|expired|next_expired|prev_expired|back_to_menu|delete)$'
     ))
     application.add_handler(get_delete_order_conversation_handler())
     for handler in get_delete_callbacks():

@@ -89,9 +89,9 @@ async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
         try:
             parsed = datetime.strptime(str(ngay_het_han_raw), "%Y-%m-%d")
             formatted = parsed.strftime("%d/%m/%Y")
-            ngay_het_han_line = escape_markdown("📆 Ngày hết hạn: ") + escape_markdown(formatted) + "\n"
+            ngay_het_han_line = escape_markdown("⏳ Ngày hết hạn: ") + escape_markdown(formatted) + "\n"
         except:
-            ngay_het_han_line = escape_markdown("📆 Ngày hết hạn: ") + escape_markdown(str(ngay_het_han_raw)) + "\n"
+            ngay_het_han_line = escape_markdown("⏳ Ngày hết hạn: ") + escape_markdown(str(ngay_het_han_raw)) + "\n"
 
     gia_ban_line = escape_markdown("💰 Giá tiền: ")
     matched_row = None

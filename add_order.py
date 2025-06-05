@@ -247,20 +247,6 @@ async def nhap_gia_nhap(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["last_keyboard_msg_id"] = msg.message_id
     return CHON_THONG_TIN_DON
 
-
-    context.user_data["gia_nhap"] = "{:,} đ".format(gia_value)  # lưu để hiển thị
-    context.user_data["gia_nhap_value"] = gia_value  # nếu cần dùng sau
-
-    keyboard = [[InlineKeyboardButton("❌ Hủy Đơn", callback_data="cancel_add")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    sent = await update.message.reply_text(
-        "📥 Vui lòng nhập *Thông tin đơn hàng*:",
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
-    context.user_data["last_keyboard_msg_id"] = sent.message_id
-    return CHON_THONG_TIN_DON
-
 async def nhap_thong_tin_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await remove_previous_buttons(update, context)
     thong_tin = update.message.text.strip()
@@ -499,24 +485,22 @@ def tinh_ngay_het_han(ngay_bat_dau_str, so_ngay_dang_ky):
     try:
         ngay_bat_dau = datetime.strptime(ngay_bat_dau_str, "%d/%m/%Y")
         tong_ngay = int(so_ngay_dang_ky)
-        # Quy đổi theo logic yêu cầu
         so_nam = tong_ngay // 365
         so_ngay_con_lai = tong_ngay % 365
         so_thang = so_ngay_con_lai // 30
         so_ngay_du = so_ngay_con_lai % 30
-        # Cộng năm
-        ngay_het_han = ngay_bat_dau + relativedelta(years=so_nam)
-        # Cộng tháng
-        ngay_het_han += relativedelta(months=so_thang)
-        # Cộng ngày dư (trừ 1 để tính cả ngày bắt đầu)
-        if so_ngay_du > 0:
-            ngay_het_han += timedelta(days=so_ngay_du - 1)
-        else:
-            ngay_het_han -= timedelta(days=1)
+
+        # ✅ Gộp cộng cả năm, tháng, ngày dư (trừ 1 để tính cả ngày bắt đầu)
+        ngay_het_han = ngay_bat_dau + relativedelta(
+            years=so_nam,
+            months=so_thang,
+            days=so_ngay_du - 1
+        )
         return ngay_het_han.strftime("%d/%m/%Y")
     except Exception as e:
         print(f"[LỖI TÍNH NGÀY]: {e}")
         return ""
+
 
 async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info = context.user_data
@@ -550,6 +534,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info.get("ma_chon", ""),
         info.get("thong_tin_don", ""),
         info.get("khach_hang", ""),
+        info.get("link_khach", ""),  # 👈 chèn thêm dòng này
         info.get("slot", ""),
         info["ngay_bat_dau"],
         info["so_ngay"],
@@ -572,7 +557,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for col in all_columns
         )
         if not row_has_data:
-            sheet.update(f"A{idx}:O{idx}", [row_data])
+            sheet.update(f"A{idx}:P{idx}", [row_data])
             break
     else:
         print("❌ Không tìm thấy dòng phù hợp để ghi.")

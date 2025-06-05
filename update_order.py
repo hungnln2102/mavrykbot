@@ -7,7 +7,10 @@ from telegram.ext import (
 )
 from telegram.helpers import escape_markdown
 from utils import connect_to_sheet
-from menu import show_menu
+from menu import show_main_selector
+from add_order import tinh_ngay_het_han
+from add_order import tinh_ngay_het_han
+
 
 logger = logging.getLogger(__name__)
 
@@ -16,14 +19,16 @@ SELECT_MODE, INPUT_VALUE, SELECT_FIELD, INPUT_NEW_VALUE = range(4)
 async def start_update_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🔍 Kiểm tra theo Mã Đơn Hàng", callback_data="check_ma_don")],
-        [InlineKeyboardButton("❌ Kết Thúc", callback_data="cancel_update")]
+        [InlineKeyboardButton("❌ Kết Thúc", callback_data="end_update_with_cancel")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.message.reply_text("📋 Vui lòng chọn hình thức kiểm tra:", reply_markup=reply_markup)
+        msg = await update.callback_query.message.reply_text("📋 Vui lòng chọn hình thức kiểm tra:", reply_markup=reply_markup)
+        context.user_data["last_message_id"] = msg.message_id
     else:
-        await update.message.reply_text("📋 Vui lòng chọn hình thức kiểm tra:", reply_markup=reply_markup)
+        msg = await update.message.reply_text("📋 Vui lòng chọn hình thức kiểm tra:", reply_markup=reply_markup)
+        context.user_data["last_message_id"] = msg.message_id
     return SELECT_MODE
 
 async def select_check_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -33,16 +38,29 @@ async def select_check_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "check_ma_don":
         keyboard = [
-            [InlineKeyboardButton("❌ Kết Thúc", callback_data="cancel_update")]
+            [InlineKeyboardButton("❌ Kết Thúc", callback_data="end_update_with_cancel")]
         ]
-        await query.message.reply_text("🔢 Vui lòng nhập mã đơn hàng:", reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.message.edit_reply_markup(reply_markup=None)
+        msg = await query.message.reply_text("🔢 Vui lòng nhập mã đơn hàng:", reply_markup=InlineKeyboardMarkup(keyboard))
+        context.user_data["last_message_id"] = msg.message_id
         return INPUT_VALUE
 
-    return await cancel_update(update, context)
+    return await end_update_success(update, context)
 
 async def input_value_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 🔁 Xoá nút cũ nếu có
+    if context.user_data.get("last_message_id"):
+        try:
+            await update.message.bot.edit_message_reply_markup(
+                chat_id=update.effective_chat.id,
+                message_id=context.user_data["last_message_id"],
+                reply_markup=None
+            )
+        except:
+            pass
+
     text = update.message.text.strip()
-    sheet = connect_to_sheet()
+    sheet = connect_to_sheet().worksheet("Test")
     data = sheet.get_all_values()
 
     for idx, row in enumerate(data):
@@ -68,7 +86,7 @@ async def input_value_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             buttons = [
                 [
                     InlineKeyboardButton("🛠 Cập nhật đơn", callback_data="start_edit"),
-                    InlineKeyboardButton("❌ Kết Thúc", callback_data="cancel_update")
+                    InlineKeyboardButton("❌ Kết Thúc", callback_data="end_update_with_cancel")
                 ]
             ]
             await update.message.reply_text(
@@ -79,7 +97,7 @@ async def input_value_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             return SELECT_FIELD
 
     await update.message.reply_text("❌ Không tìm thấy mã đơn hàng. Quay về menu chính.")
-    return await cancel_update(update, context)
+    return await end_update_success(update, context)
 
 async def start_edit_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -87,9 +105,10 @@ async def start_edit_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("💵 Giá Bán", callback_data="edit_col_11")],
         [InlineKeyboardButton("🚚 Nguồn Cấp Hàng", callback_data="edit_col_9")],
         [InlineKeyboardButton("🧾 Giá Nhập", callback_data="edit_col_10")],
-        [InlineKeyboardButton("❌ Kết Thúc", callback_data="cancel_update")]
+        [InlineKeyboardButton("❌ Kết Thúc", callback_data="end_update_with_cancel")]
     ]
     await update.callback_query.answer()
+    await update.callback_query.message.edit_reply_markup(reply_markup=None)
     await update.callback_query.message.reply_text(
         "📋 Vui lòng chọn nội dung cần chỉnh sửa:", reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -99,21 +118,30 @@ async def choose_field_to_edit(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
     context.user_data['edit_column'] = query.data.split("_")[-1]
-    await query.message.reply_text("✏️ Vui lòng nhập nội dung cần chỉnh sửa:")
+    await query.message.edit_reply_markup(reply_markup=None)
+    msg = await query.message.reply_text("✏️ Vui lòng nhập nội dung cần chỉnh sửa:")
+    context.user_data["last_message_id"] = msg.message_id
     return INPUT_NEW_VALUE
 
 async def input_new_value_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
-    sheet = connect_to_sheet()
+    sheet = connect_to_sheet().worksheet("Test")
     row_idx = context.user_data.get("selected_row")
     col_idx = context.user_data.get("edit_column")
 
     if not row_idx or not col_idx:
         await update.message.reply_text("⚠️ Không xác định được dòng cần cập nhật.")
-        return await cancel_update(update, context)
+        return await end_update_success(update, context)
 
     try:
         sheet.update_cell(row_idx, int(col_idx) + 1, text)
+        if col_idx == "6":
+            row = sheet.row_values(row_idx)
+            ngay_bat_dau = row[5] if len(row) > 5 else ""
+            if ngay_bat_dau:
+                ngay_het_han = tinh_ngay_het_han(ngay_bat_dau, text)
+                sheet.update_cell(row_idx, 8, ngay_het_han)  # cột H = 8
+
         updated = sheet.row_values(row_idx)
 
         await update.message.reply_text(
@@ -125,12 +153,18 @@ async def input_new_value_handler(update: Update, context: ContextTypes.DEFAULT_
     except Exception as e:
         await update.message.reply_text(f"❌ Cập nhật thất bại: {str(e)}")
 
-    return await cancel_update(update, context)
+    return await end_update_success(update, context)
 
-async def cancel_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+async def end_update_with_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:
         await update.callback_query.answer()
-    await show_menu(update, context)
+        await update.callback_query.message.reply_text("❌ Đã hủy cập nhật đơn.")
+    elif update.message:
+        await update.message.reply_text("❌ Đã hủy cập nhật đơn.")
+
+    # Gửi menu mới (không chỉnh sửa lại tin nhắn cũ)
+    await show_main_selector(update, context)
     return ConversationHandler.END
 
 def get_update_order_conversation_handler():
@@ -149,9 +183,14 @@ def get_update_order_conversation_handler():
             INPUT_NEW_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_new_value_handler)]
         },
         fallbacks=[
-            CallbackQueryHandler(cancel_update, pattern="^cancel_update$"),
-            CommandHandler("cancel", cancel_update)
+            CallbackQueryHandler(end_update_with_cancel, pattern="^end_update_with_cancel$"),
+            CommandHandler("cancel", end_update_with_cancel)
         ],
         name="update_order_conversation",
         persistent=False
     )
+
+
+async def end_update_success(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await show_main_selector(update, context)
+    return ConversationHandler.END
