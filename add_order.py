@@ -50,7 +50,7 @@ async def chon_loai_khach(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     # 🧾 Chỉnh sửa lại tin nhắn cũ thành thông báo mã đơn hàng mới
     msg = await query.message.edit_text(
-        f"🧾 Mã đơn hàng: {ma_don} đã được khởi tạo thành công.\n\nVui lòng nhập *Tên Sản Phẩm*:",
+        f"🧾 Mã đơn hàng: `{ma_don}` đã được khởi tạo thành công.\n\nVui lòng nhập *Tên Sản Phẩm*:",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
@@ -139,7 +139,7 @@ async def chon_ma_san_pham(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     # ✨ Sửa lại tin nhắn để hiển thị bước chọn nguồn
     msg = await query.message.edit_text(
-        f"📦 Mã sản phẩm: {ma_chon}\nVui lòng chọn *Nguồn hàng*:",
+        f"📦 Mã sản phẩm: `{ma_chon}`\nVui lòng chọn *Nguồn hàng*:",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
@@ -161,7 +161,7 @@ async def chon_nguon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await context.bot.edit_message_text(
         chat_id=query.message.chat_id,
         message_id=query.message.message_id,
-        text=f"✅ Đã chọn nguồn: {nguon}\n📥 Vui lòng nhập *Thông tin đơn hàng*:",
+        text=f"✅ Đã chọn nguồn: `{nguon}`\n📥 Vui lòng nhập *Thông tin đơn hàng*:",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
@@ -192,7 +192,7 @@ async def nhap_nguon_moi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.edit_message_text(
             chat_id=update.message.chat_id,
             message_id=context.user_data.get("last_keyboard_msg_id"),
-            text=f"✅ Đã nhận nguồn: {nguon}",
+            text=f"✅ Đã nhận nguồn: `{nguon}`",
             parse_mode="Markdown"
         )
     except Exception as e:
@@ -217,7 +217,7 @@ async def nhap_gia_nhap(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[InlineKeyboardButton("❌ Hủy Đơn", callback_data="cancel_add")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         msg = await update.message.reply_text(
-            "⚠️ *Giá nhập không hợp lệ*. Vui lòng chỉ nhập số (vd: 100, 100.2, 100,2):",
+            "⚠️ *Giá nhập không hợp lệ*. Vui lòng chỉ nhập số (vd: `100`, `100.2`, `100,2`):",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -231,7 +231,7 @@ async def nhap_gia_nhap(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.edit_message_text(
             chat_id=update.message.chat_id,
             message_id=context.user_data.get("last_keyboard_msg_id"),
-            text=f"✅ Đã nhận *Giá nhập*: {context.user_data['gia_nhap']}",
+            text=f"✅ Đã nhận *Giá nhập*: `{context.user_data['gia_nhap']}`",
             parse_mode="Markdown"
         )
     except Exception as e:
@@ -256,7 +256,7 @@ async def nhap_thong_tin_don(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await context.bot.edit_message_text(
             chat_id=update.message.chat_id,
             message_id=context.user_data.get("last_keyboard_msg_id"),
-            text=f"✅ Đã nhận *Thông tin đơn hàng*: {thong_tin}",
+            text=f"✅ Đã nhận *Thông tin đơn hàng*: `{thong_tin}`",
             parse_mode="Markdown"
         )
     except Exception as e:
@@ -281,7 +281,7 @@ async def nhap_khach_hang(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.edit_message_text(
             chat_id=update.message.chat_id,
             message_id=context.user_data.get("last_keyboard_msg_id"),
-            text=f"✅ Đã nhận *Tên khách hàng*: {khach}",
+            text=f"✅ Đã nhận *Tên khách hàng*: `{khach}`",
             parse_mode="Markdown"
         )
     except Exception as e:
@@ -309,7 +309,7 @@ async def nhap_link_khach(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.edit_message_text(
             chat_id=update.message.chat_id,
             message_id=context.user_data.get("last_keyboard_msg_id"),
-            text=f"✅ Đã nhận *Thông tin liên hệ*: {link}",
+            text=f"✅ Đã nhận *Thông tin liên hệ*: `{link}`",
             parse_mode="Markdown"
         )
     except Exception as e:
@@ -352,7 +352,7 @@ async def xu_ly_ma_san_pham_moi(update: Update, context: ContextTypes.DEFAULT_TY
         await context.bot.edit_message_text(
             chat_id=update.message.chat_id,
             message_id=context.user_data.get("last_keyboard_msg_id"),
-            text=f"✅ Đã tạo Mã Sản Phẩm: {ma_moi} thành công",
+            text=f"✅ Đã tạo Mã Sản Phẩm: `{ma_moi}` thành công",
             parse_mode="Markdown"
         )
     except Exception as e:
@@ -378,7 +378,7 @@ async def nhap_slot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.edit_message_text(
             chat_id=update.message.chat_id,
             message_id=context.user_data.get("last_keyboard_msg_id"),
-            text=f"✅ Đã nhận *Slot*: {slot}",
+            text=f"✅ Đã nhận *Slot*: `{slot}`",
             parse_mode="Markdown"
         )
     except Exception as e:
@@ -410,7 +410,7 @@ async def nhap_so_ngay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.edit_message_text(
             chat_id=update.message.chat_id,
             message_id=context.user_data.get("last_keyboard_msg_id"),
-            text=f"✅ Đã nhận *Số ngày đăng ký*: {so_ngay} ngày",
+            text=f"✅ Đã nhận *Số ngày đăng ký*: `{so_ngay}` ngày",
             parse_mode="Markdown"
         )
     except Exception as e:
@@ -444,7 +444,7 @@ async def nhap_gia_ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.edit_message_text(
         chat_id=update.message.chat_id,
         message_id=context.user_data.get("last_keyboard_msg_id"),
-        text=f"✅ Đã nhận *Giá bán*: {context.user_data['gia_ban']}",
+        text=f"✅ Đã nhận *Giá bán*: `{context.user_data['gia_ban']}`",
         parse_mode="Markdown"
     )
     except Exception as e:
@@ -474,7 +474,7 @@ async def nhap_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.edit_message_text(
             chat_id=update.message.chat_id,
             message_id=context.user_data.get("last_keyboard_msg_id"),
-            text=f"✅ Đã nhận *Ghi chú*: {note}",
+            text=f"✅ Đã nhận *Ghi chú*: `{note}`",
             parse_mode="Markdown"
         )
     except Exception as e:
@@ -533,27 +533,34 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info.get("ma_chon", ""),
         info.get("thong_tin_don", ""),
         info.get("khach_hang", ""),
-        info.get("link_khach", ""),
+        info.get("link_khach", ""),  # 👈 chèn thêm dòng này
         info.get("slot", ""),
         info["ngay_bat_dau"],
         info["so_ngay"],
         ngay_het_han,
-        "",  # Cột J - công thức sẽ được thêm sau
+        "",
         info.get("nguon", ""),
         info.get("gia_nhap", ""),
         info.get("gia_ban", ""),
-        "",  # Cột N
+        "",
         info.get("note", ""),
         "Chưa Thanh Toán"
     ]
-    # ✅ Ghi dữ liệu 1 lần duy nhất bằng append_row
-    sheet.append_row(row_data, value_input_option="USER_ENTERED")
-    # ✅ Cập nhật công thức cho cột J (Ngày còn lại)
-    row_index = len(sheet.get_all_values())
-    sheet.update_acell(f"J{row_index}", f'=IF(I{row_index}="","",I{row_index}-TODAY())')
-    # ✅ Chỉ gửi 1 tin nhắn kèm ảnh QR
+    # --- Ghi dữ liệu vào dòng trống đầu tiên ---
+    columns_to_check = [1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 14]
+    all_columns = [sheet.col_values(col) for col in columns_to_check]
+    max_row = sheet.row_count
+    for idx in range(2, max_row + 1):
+        row_has_data = any(
+            col[idx - 1].strip() if idx <= len(col) and col[idx - 1] else ""
+            for col in all_columns
+        )
+        if not row_has_data:
+            sheet.update(f"A{idx}:P{idx}", [row_data])
+            break
+    else:
+        print("❌ Không tìm thấy dòng phù hợp để ghi.")
     await update.message.reply_photo(photo=qr_url, caption=msg, parse_mode="Markdown")
-    # ✅ Gọi menu chính sau khi tạo đơn
     await show_outer_menu(update, context)
     return ConversationHandler.END
 
