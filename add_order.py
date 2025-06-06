@@ -509,57 +509,70 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ngay_bat_dau_str = datetime.now().strftime("%d/%m/%Y")
     info["ngay_bat_dau"] = ngay_bat_dau_str
     ngay_het_han = tinh_ngay_het_han(ngay_bat_dau_str, info.get("so_ngay", "0"))
+
     qr_url = f"https://img.vietqr.io/image/VPB-mavrykstore-compact2.png?amount={gia_value}&addInfo={ma_don}"
     msg = (
-        f"✅ *Đơn hàng `{ma_don}` đã được khởi tạo thành công!*\n\n"
-        f"✧═════• ༺ 𝐓𝐡𝐨̂𝐧𝐠 𝐓𝐢𝐧 𝐒𝐚̉𝐧 𝐏𝐡𝐚̂̉𝐦 ༻ •═════✧\n"
-        f"📌 *Tên sản phẩm:* {info.get('ten_san_pham', '')}\n"
-        f"📝 *Chi tiết:* {info.get('thong_tin_don', '')}\n"
+        f"✅ *Đơn hàng `{ma_don}` đã được tạo thành công!*\n\n"
+
+        f"📦 *THÔNG TIN SẢN PHẨM*\n"
+        f"🔹 *Tên:* {info.get('ten_san_pham', '')}\n"
+        f"📝 *Mô tả:* {info.get('thong_tin_don', '')}\n"
         + (f"🧩 *Slot:* {info['slot']}\n" if info.get("slot") else "")
+        + f"📆 *Bắt đầu:* {info.get('ngay_bat_dau', '')}\n"
         + f"⏳ *Thời hạn:* {info.get('so_ngay', '')} ngày\n"
         + f"📅 *Hết hạn:* {ngay_het_han}\n"
-        + f"💵 *Giá bán:* {info.get('gia_ban', '')} VNĐ\n\n"
-        f"✧═════• ༺ 𝐊𝐡𝐚́𝐜𝐡 𝐇𝐚̀𝐧𝐠 ༻ •═════✧\n"
-        f"👤 *Tên:* {info.get('khach_hang', '')}\n"
-        f"🔗 *Liên hệ:* {info.get('link_khach')}\n\n"
-        f"✧═════• ༺ 𝐓𝐡𝐨̂𝐧𝐠 𝐁𝐚́𝐨 ༻ •═════✧\n"
-        f"💬 Vui lòng thanh toán để đơn hàng được xử lý sớm nhất.\n"
-        f"📞 Mọi thắc mắc xin liên hệ với Shop để được hỗ trợ.\n"
+        + f"💵 *Giá bán:* {info.get('gia_ban', '')} VNĐ\n"
+
+        f"\n━━━━━━━━━━ 👤 ━━━━━━━━━━\n\n"
+
+        f"👤 *THÔNG TIN KHÁCH HÀNG*\n"
+        f"🔸 *Tên:* {info.get('khach_hang', '')}\n"
+        + (f"🔗 *Liên hệ:* {info['link_khach']}\n" if info.get("link_khach") else "") + ""
+
+        f"\n━━━━━━━━━━ 💳 ━━━━━━━━━━\n\n"
+
+        f"📢 *HƯỚNG DẪN THANH TOÁN*\n"
+        f"✅ Vui lòng chuyển khoản đúng nội dung và số tiền.\n"
+        f"📞 Mọi thắc mắc xin liên hệ lại Shop để được hỗ trợ.\n\n"
         f"🙏 *Cảm ơn quý khách đã tin tưởng và ủng hộ Mavryk Store!* ✨"
     )
+
     sheet = connect_to_sheet().worksheet("Test")
-    row_data = [
-        ma_don,
-        info.get("ma_chon", ""),
-        info.get("thong_tin_don", ""),
-        info.get("khach_hang", ""),
-        info.get("link_khach", ""),  # 👈 chèn thêm dòng này
-        info.get("slot", ""),
-        info["ngay_bat_dau"],
-        info["so_ngay"],
-        ngay_het_han,
-        "",
-        info.get("nguon", ""),
-        info.get("gia_nhap", ""),
-        info.get("gia_ban", ""),
-        "",
-        info.get("note", ""),
-        "Chưa Thanh Toán"
-    ]
+
     # --- Ghi dữ liệu vào dòng trống đầu tiên ---
     columns_to_check = [1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 14]
     all_columns = [sheet.col_values(col) for col in columns_to_check]
     max_row = sheet.row_count
+
     for idx in range(2, max_row + 1):
         row_has_data = any(
             col[idx - 1].strip() if idx <= len(col) and col[idx - 1] else ""
             for col in all_columns
         )
         if not row_has_data:
-            sheet.update(f"A{idx}:P{idx}", [row_data])
+            row_data = [
+                ma_don,
+                info.get("ma_chon", ""),
+                info.get("thong_tin_don", ""),
+                info.get("khach_hang", ""),
+                info.get("link_khach", ""),
+                info.get("slot", ""),
+                info["ngay_bat_dau"],
+                info["so_ngay"],
+                ngay_het_han,
+                f"=I{idx}-TODAY()",  # ✅ Công thức tính số ngày còn lại
+                info.get("nguon", ""),
+                info.get("gia_nhap", ""),
+                info.get("gia_ban", ""),
+                "",
+                info.get("note", ""),
+                "Chưa Thanh Toán"
+            ]
+            sheet.update(f"A{idx}:P{idx}", [row_data], value_input_option="USER_ENTERED")
             break
     else:
         print("❌ Không tìm thấy dòng phù hợp để ghi.")
+
     await update.message.reply_photo(photo=qr_url, caption=msg, parse_mode="Markdown")
     await show_outer_menu(update, context)
     return ConversationHandler.END
