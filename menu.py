@@ -44,10 +44,7 @@ async def show_main_selector(update: Update, context: ContextTypes.DEFAULT_TYPE,
     if update.callback_query and edit:
         await update.callback_query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
     elif update.callback_query:
-        try:
-            await update.callback_query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
-        except:
-            await update.callback_query.message.delete()
-            await update.effective_chat.send_message(message, reply_markup=reply_markup, parse_mode='Markdown')
+        # ✅ Gửi menu mới bằng tin nhắn mới, không sửa tin cũ
+        await update.effective_chat.send_message(message, reply_markup=reply_markup, parse_mode='Markdown')
     elif update.message:
         await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='Markdown')

@@ -113,23 +113,14 @@ async def confirm_delete_order(update: Update, context: ContextTypes.DEFAULT_TYP
         sheet = connect_to_sheet().worksheet("Test")
         sheet.delete_rows(row_index)
 
-        # Xóa nút khỏi tin nhắn cũ
-        await context.bot.edit_message_reply_markup(
-            chat_id=query.message.chat_id,
-            message_id=query.message.message_id,
-            reply_markup=None
-        )
-
-        # Gửi thông báo
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
+        # 🧹 Gỡ nút cũ và thay nội dung bằng thông báo xóa thành công
+        await query.message.edit_text(
             text=f"✅ Đơn hàng `{escape_markdown(ma_don, version=2)}` đã được *xóa thành công*\\!",
             parse_mode=ParseMode.MARKDOWN_V2
         )
 
-        # Gửi menu mới
-        fake_update = Update(update.update_id, message=query.message)
-        await show_main_selector(fake_update, context)
+        # 🆕 Gửi menu mới (không sửa lại dòng trên)
+        await show_main_selector(update, context, edit=False)
 
     except Exception as e:
         logger.error(f"Lỗi khi xóa đơn: {e}")
@@ -150,11 +141,8 @@ async def cancel_delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.warning(f"[⚠️ Không thể xoá nút hủy]: {e}")
 
     context.user_data.clear()
-    await query.message.reply_text("❌ Đã hủy thao tác xóa đơn hàng.")
-
-    fake_update = Update(update.update_id, message=query.message)
-    await show_main_selector(fake_update, context)
-
+    await query.message.edit_text("❌ Đã hủy thao tác xóa đơn hàng.")
+    await show_main_selector(update, context, edit=False)
     return ConversationHandler.END
 
 # 👉 Conversation handler

@@ -5,6 +5,7 @@ from datetime import datetime
 from io import BytesIO
 import requests
 from PIL import Image
+from menu import show_main_selector
 
 def escape_markdown(text):
     special_chars = r'\\_*[]()~`>#+-=|{}.!'
@@ -26,6 +27,7 @@ async def view_expired_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
             escape_markdown("✅ Hiện không có đơn hàng nào sắp hết hạn."),
             parse_mode="MarkdownV2"
         )
+        await show_main_selector(update, context)
         return
 
     context.user_data["expired_orders"] = orders
@@ -63,9 +65,9 @@ async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
     info_raw = row.get("Thông tin sản phẩm", "")
     customer_raw = row.get("Khách hàng", "")
     slot_raw = row.get("Slot", "")
-    ngay_dang_ky_raw = row.get("Ngày Đăng Kí", "")
+    ngay_dang_ky_raw = row.get("Ngày Đăng Ký", "")
     ngay_het_han_raw = row.get("Hết Hạn", "")
-    nguon_raw = row.get("Nguồn nhập hàng", "")
+    nguon_raw = row.get("Nguồn", "")
     days_left = int(float(row.get("Còn Lại", 0)))
 
     product = escape_markdown(product_raw)
