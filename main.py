@@ -17,6 +17,8 @@ from view_due_orders import view_expired_orders, show_expired_order
 
 from aiohttp import web
 import asyncio
+from payment_webhook import routes as sepay_routes
+
 
 AUTHORIZED_USER_ID = 510811276
 
@@ -104,6 +106,7 @@ async def main():
     bot = application.bot
 
     app = web.Application()
+    app.add_routes(sepay_routes)
     app["application"] = application
     app["bot"] = bot
     app.router.add_get("/", healthcheck)
