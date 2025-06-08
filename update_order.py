@@ -27,20 +27,26 @@ def format_order_message(row):
     slot = f"🎯 Slot: {row[5]}\n" if len(row) > 5 and row[5] else ""
     link_khach = row[4] if len(row) > 4 and row[4] else None
     message = (
-        f"🔍 Thông tin đơn hàng với Mã Đơn Hàng: `{escape_markdown(row[0], version=2)}`\n\n"
-        f"🏍️ Sản phẩm: `{escape_markdown(row[1], version=2)}`\n"
-        f"📄 Thông tin sản phẩm: {escape_markdown(row[2], version=2)}\n"
-        f"👤 Khách Hàng: {escape_markdown(row[3], version=2)}\n"
-        + (f"🔗 Liên hệ: {escape_markdown(link_khach, version=2)}\n" if link_khach else "")
-        + escape_markdown(slot, version=2) +
-        f"📅 Ngày đăng ký: {escape_markdown(row[6], version=2)}\n"
-        f"📆 Số ngày đã đăng ký: {escape_markdown(row[7], version=2)}\n"
-        f"⏳ Ngày hết hạn: {escape_markdown(row[8], version=2)}\n"
-        f"📉 Số ngày còn lại: {escape_markdown(row[9], version=2)}\n"
-        f"🚚 Nguồn cấp hàng: {escape_markdown(row[10], version=2)}\n"
-        f"🧾 Giá nhập: {escape_markdown(row[11], version=2)}\n"
-        f"💵 Giá bán: {escape_markdown(row[12], version=2)}"
-    )
+        f"✅ *CHI TIẾT ĐƠN HÀNG*\n"
+        f"📦 Mã đơn: `{escape_markdown(row[0], version=2)}`\n\n"
+
+        f"✧═════• ༺ 𝐓𝐇𝐎̂𝐍𝐆 𝐓𝐈𝐍 𝐒𝐀̉𝐍 𝐏𝐇𝐀̂̉𝐌 ༻ •═════✧\n"
+        f"🏷️ *Sản phẩm:* {escape_markdown(row[1], version=2)}\n"
+        f"📝 *Chi tiết:* {escape_markdown(row[2], version=2)}\n"
+        + (f"🧩 *Slot:* {escape_markdown(slot, version=2)}\n" if slot else "")
+        + f"📅 *Ngày đăng ký:* {escape_markdown(row[6], version=2)}\n"
+        f"📆 *Số ngày đăng ký:* {escape_markdown(row[7], version=2)} ngày\n"
+        f"⏳ *Hết hạn:* {escape_markdown(row[8], version=2)}\n"
+        f"📉 *Còn lại:* {escape_markdown(row[9], version=2)} ngày\n"
+        f"🚚 *Nguồn hàng:* {escape_markdown(row[10], version=2)}\n"
+        f"🧾 *Giá nhập:* {escape_markdown(row[11], version=2)}\n"
+        f"💵 *Giá bán:* {escape_markdown(row[12], version=2)}\n\n"
+
+        f"✧═════• ༺ 𝐓𝐇𝐎̂𝐍𝐆 𝐓𝐈𝐍 𝐊𝐇𝐀𝐂𝐇 𝐇𝐀̀𝐍𝐆 ༻ •═════✧\n"
+        f"👤 *Tên:* {escape_markdown(row[3], version=2)}\n"
+        + (f"🔗 *Liên hệ:* {escape_markdown(link_khach, version=2)}\n" if link_khach else "")
+)
+
     return message
 
 # ❌ KHÔNG escape toàn bộ message ở trong safe_send!
@@ -207,8 +213,7 @@ async def input_new_value_handler(update: Update, context: ContextTypes.DEFAULT_
                 sheet.update_cell(row_idx, 9, ngay_het_han)
 
         updated = sheet.row_values(row_idx)
-        header = escape_markdown(f"✅ Đơn hàng `{updated[0]}` đã được cập nhật thành công!", version=2)
-        message = f"{header}\n\n{format_order_message(updated)}"
+        message = format_order_message(updated)
         await update.message.reply_text(message, parse_mode="MarkdownV2")
 
     except Exception as e:

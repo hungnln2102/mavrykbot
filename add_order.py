@@ -8,6 +8,7 @@ from utils import connect_to_sheet, generate_unique_id
 from menu import show_outer_menu
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
+from telegram.helpers import escape_markdown
 
 CHON_LOAI_KHACH, TEN_SAN_PHAM, CHON_NGUON_MOI, CHON_GIA_NHAP, CHON_KHACH_HANG, CHON_THONG_TIN_DON, CHON_LINK_KHACH, CHON_MA_SAN_PHAM_MOI, CHON_SLOT, CHON_SO_NGAY, CHON_GIA_BAN, CHON_NOTE = range(12)
 
@@ -512,7 +513,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     qr_url = f"https://img.vietqr.io/image/VPB-mavrykstore-compact2.png?amount={gia_value}&addInfo={ma_don}"
     msg = (
-        f"✅ *Đơn hàng `{ma_don}` đã được tạo thành công!*\n\n"
+        f"✅ *Đơn hàng `{escape_markdown(ma_don, version=2)}` đã được tạo thành công!*"
 
         f"📦 *THÔNG TIN SẢN PHẨM*\n"
         f"🔹 *Tên:* {info.get('ten_san_pham', '')}\n"
