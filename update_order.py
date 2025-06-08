@@ -223,13 +223,20 @@ async def input_new_value_handler(update: Update, context: ContextTypes.DEFAULT_
 
 async def start_edit_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("📆 Số Ngày Đăng Ký", callback_data="edit_col_7"),
-         InlineKeyboardButton("💵 Giá Bán", callback_data="edit_col_12")],
+        [InlineKeyboardButton("📌 Sản phẩm", callback_data="edit_col_1"),
+         InlineKeyboardButton("📝 Chi tiết", callback_data="edit_col_2")],
+
+        [InlineKeyboardButton("🎯 Slot", callback_data="edit_col_5"),
+         InlineKeyboardButton("📆 Số Ngày Đăng Ký", callback_data="edit_col_7")],
+
         [InlineKeyboardButton("🚚 Nguồn Cấp Hàng", callback_data="edit_col_10"),
          InlineKeyboardButton("🧾 Giá Nhập", callback_data="edit_col_11")],
-        [InlineKeyboardButton("👤 Tên Khách Hàng", callback_data="edit_col_3"),
-         InlineKeyboardButton("🔗 Link Khách", callback_data="edit_col_4")],
-        [InlineKeyboardButton("❌ Kết Thúc", callback_data="end_update_with_cancel")]
+
+        [InlineKeyboardButton("💵 Giá Bán", callback_data="edit_col_12"),
+         InlineKeyboardButton("👤 Tên Khách Hàng", callback_data="edit_col_3")],
+
+        [InlineKeyboardButton("🔗 Link Khách", callback_data="edit_col_4"),
+         InlineKeyboardButton("❌ Kết Thúc", callback_data="end_update_with_cancel")]
     ]
     await update.callback_query.answer()
     await update.callback_query.message.edit_reply_markup(reply_markup=None)

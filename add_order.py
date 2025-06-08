@@ -511,9 +511,9 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info["ngay_bat_dau"] = ngay_bat_dau_str
     ngay_het_han = tinh_ngay_het_han(ngay_bat_dau_str, info.get("so_ngay", "0"))
 
-    qr_url = f"https://img.vietqr.io/image/VPB-mavrykstore-compact2.png?amount={gia_value}&addInfo={ma_don}"
+    qr_url = f"https://img.vietqr.io/image/VPB-mavpre-compact2.png?amount={gia_value}&addInfo={ma_don}"
     msg = (
-        f"✅ *Đơn hàng `{escape_markdown(ma_don, version=2)}` đã được tạo thành công!*"
+        f"✅ Đơn hàng `{escape_markdown(ma_don, version=2)}` đã được tạo thành công!\n"
 
         f"📦 *THÔNG TIN SẢN PHẨM*\n"
         f"🔹 *Tên:* {info.get('ten_san_pham', '')}\n"
@@ -565,7 +565,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 info.get("nguon", ""),
                 info.get("gia_nhap", ""),
                 info.get("gia_ban", ""),
-                "",
+                f"=IF(H{idx}<=0; \"\"; IF(H{idx}<4; \"Chưa Thanh Toán\"; IF(AND(H{idx}>4; Q{idx}=TRUE); \"Đã Thanh Toán\"; \"\")))",
                 info.get("note", ""),
                 "Chưa Thanh Toán"
             ]

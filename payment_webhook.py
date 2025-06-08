@@ -21,11 +21,11 @@ async def handle_payment(request):
 
         sheet = connect_to_sheet().worksheet("Biên Lai Thanh Toán")
         sheet.append_row([
-            ma_don or "",  # Nếu không có mã đơn thì để trống
-            data.get("time", ""),
-            data.get("amount", ""),
-            data.get("sender", ""),
-            content
+            ma_don or "",                              # Cột A: Mã đơn hàng
+            data.get("transactionDate", ""),          # Cột B: Ngày Thanh Toán
+            data.get("transferAmount", ""),           # Cột C: Số tiền
+            data.get("accountNumber", ""),            # Cột D: Người gửi (hiện là số tài khoản)
+            content                                    # Cột E: Nội dung chuyển khoản
         ])
 
         if ma_don:
