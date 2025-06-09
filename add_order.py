@@ -578,9 +578,9 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 info.get("nguon", ""),
                 info.get("gia_nhap", ""),
                 info.get("gia_ban", ""),
-                f"=IF(H{idx}<=0; \"\"; IF(H{idx}<4; \"Chưa Thanh Toán\"; IF(AND(H{idx}>4; Q{idx}=TRUE); \"Đã Thanh Toán\"; \"\")))",
+                "",
                 info.get("note", ""),
-                "Chưa Thanh Toán"
+                "f"=IF(H{idx}<=0; \"\"; IF(H{idx}<4; \"Chưa Thanh Toán\"; IF(AND(H{idx}>4; Q{idx}=TRUE); \"Đã Thanh Toán\"; \"\")))""
             ]
             sheet.update(f"A{idx}:P{idx}", [row_data], value_input_option="USER_ENTERED")
             break
