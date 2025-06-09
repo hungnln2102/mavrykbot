@@ -513,7 +513,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     qr_url = f"https://img.vietqr.io/image/VPB-mavpre-compact2.png?amount={gia_value}&addInfo={ma_don}"
     msg = (
-        f"✅ Đơn hàng `{escape_markdown(ma_don, version=2)}` đã được tạo thành công!\n"
+        f"✅ Đơn hàng *{escape_markdown(ma_don, version=2)}* đã được tạo thành công!"
 
         f"📦 *THÔNG TIN SẢN PHẨM*\n"
         f"🔹 *Tên:* {info.get('ten_san_pham', '')}\n"
