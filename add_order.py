@@ -580,7 +580,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 info.get("gia_ban", ""),
                 "",
                 info.get("note", ""),
-                "f\"=IF(J{idx}<=0; \\\"\\\"; IF(AND(J{idx}>4; Q{idx}=TRUE); \\\"Đã Thanh Toán\\\"; \\\"Chưa Thanh Toán\\\"))\""
+                f"=IF(J{idx}<=0; \"\"; IF(AND(J{idx}>4; Q{idx}=TRUE); \"Đã Thanh Toán\"; \"Chưa Thanh Toán\"))"
             ]
             sheet.update(f"A{idx}:P{idx}", [row_data], value_input_option="USER_ENTERED")
             break
