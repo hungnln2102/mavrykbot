@@ -511,26 +511,39 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info["ngay_bat_dau"] = ngay_bat_dau_str
     ngay_het_han = tinh_ngay_het_han(ngay_bat_dau_str, info.get("so_ngay", "0"))
 
+    # Escape dữ liệu động để tránh lỗi Markdown
+    ma_don_md = escape_markdown(ma_don, version=1)
+    ten_san_pham = escape_markdown(info.get("ten_san_pham", ""), version=1)
+    mo_ta = escape_markdown(info.get("thong_tin_don", ""), version=1)
+    slot = escape_markdown(info.get("slot", ""), version=1) if info.get("slot") else ""
+    ngay_bat_dau = escape_markdown(info.get("ngay_bat_dau", ""), version=1)
+    so_ngay = escape_markdown(info.get("so_ngay", ""), version=1)
+    ngay_het_han_md = escape_markdown(ngay_het_han, version=1)
+    gia_ban = escape_markdown(info.get("gia_ban", ""), version=1)
+    khach_hang = escape_markdown(info.get("khach_hang", ""), version=1)
+    link_khach = escape_markdown(info.get("link_khach", ""), version=1) if info.get("link_khach") else ""
+
     qr_url = f"https://img.vietqr.io/image/VPB-mavpre-compact2.png?amount={gia_value}&addInfo={ma_don}"
+
     msg = (
-        f"✅ Đơn hàng `{ma_don}` đã được tạo thành công!"
+        f"✅ Đơn hàng `{ma_don_md}` đã được tạo thành công!\n\n"
 
         f"📦 *THÔNG TIN SẢN PHẨM*\n"
-        f"🔹 *Tên:* {info.get('ten_san_pham', '')}\n"
-        f"📝 *Mô tả:* {info.get('thong_tin_don', '')}\n"
-        + (f"🧩 *Slot:* {info['slot']}\n" if info.get("slot") else "")
-        + f"📆 *Bắt đầu:* {info.get('ngay_bat_dau', '')}\n"
-        + f"⏳ *Thời hạn:* {info.get('so_ngay', '')} ngày\n"
-        + f"📅 *Hết hạn:* {ngay_het_han}\n"
-        + f"💵 *Giá bán:* {info.get('gia_ban', '')} VNĐ\n"
+        f"🔹 *Tên:* {ten_san_pham}\n"
+        f"📝 *Mô tả:* {mo_ta}\n"
+        + (f"🧩 *Slot:* {slot}\n" if slot else "")
+        + f"📆 *Bắt đầu:* {ngay_bat_dau}\n"
+        + f"⏳ *Thời hạn:* {so_ngay} ngày\n"
+        + f"📅 *Hết hạn:* {ngay_het_han_md}\n"
+        + f"💵 *Giá bán:* {gia_ban} VNĐ\n"
 
         f"\n━━━━━━━━━━ 👤 ━━━━━━━━━━\n\n"
 
         f"👤 *THÔNG TIN KHÁCH HÀNG*\n"
-        f"🔸 *Tên:* {info.get('khach_hang', '')}\n"
-        + (f"🔗 *Liên hệ:* {info['link_khach']}\n" if info.get("link_khach") else "") + ""
+        f"🔸 *Tên:* {khach_hang}\n"
+        + (f"🔗 *Liên hệ:* {link_khach}\n" if link_khach else "")
 
-        f"\n━━━━━━━━━━ 💳 ━━━━━━━━━━\n\n"
+        + f"\n━━━━━━━━━━ 💳 ━━━━━━━━━━\n\n"
 
         f"📢 *HƯỚNG DẪN THANH TOÁN*\n"
         f"✅ Vui lòng chuyển khoản đúng nội dung và số tiền.\n"
