@@ -13,7 +13,7 @@ def escape_markdown(text):
 
 async def view_expired_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     spreadsheet = connect_to_sheet()
-    test_sheet = spreadsheet.worksheet("Test")
+    test_sheet = spreadsheet.worksheet("Bảng Đơn Hàng")
     data = test_sheet.get_all_records()
 
     orders = []
@@ -37,7 +37,7 @@ async def view_expired_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE, direction: str):
     spreadsheet = connect_to_sheet()
-    test_sheet = spreadsheet.worksheet("Test")
+    test_sheet = spreadsheet.worksheet("Bảng Đơn Hàng")
     bang_gia_sheet = spreadsheet.worksheet("Bảng Giá")
     bang_gia_data = bang_gia_sheet.get_all_values()
 

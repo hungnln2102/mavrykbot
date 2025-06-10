@@ -44,7 +44,7 @@ async def chon_loai_khach(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     loai_khach = query.data.replace("loai_khach_", "")
     context.user_data["loai_khach"] = loai_khach
-    sheet = connect_to_sheet().worksheet("Test")
+    sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
     ma_don = generate_unique_id(sheet, loai_khach)
     context.user_data["ma_don"] = ma_don
     keyboard = [[InlineKeyboardButton("❌ Hủy Đơn", callback_data="cancel_add")]]
@@ -551,7 +551,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🙏 *Cảm ơn quý khách đã tin tưởng và ủng hộ Mavryk Store!* ✨"
     )
 
-    sheet = connect_to_sheet().worksheet("Test")
+    sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
 
     # --- Ghi dữ liệu vào dòng trống đầu tiên ---
     columns_to_check = [1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 14]

@@ -112,7 +112,7 @@ async def input_value_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             pass
 
     check_mode = context.user_data.get("check_mode")
-    sheet = connect_to_sheet().worksheet("Test")
+    sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
     data = sheet.get_all_values()
 
     if check_mode == "check_ma_don":
@@ -185,7 +185,7 @@ async def show_matched_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
 async def input_new_value_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
-    sheet = connect_to_sheet().worksheet("Test")
+    sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
     row_idx = context.user_data.get("selected_row")
     col_idx = context.user_data.get("edit_column")
 

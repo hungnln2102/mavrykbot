@@ -64,7 +64,7 @@ async def nhan_ma_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"🔍 Nhận mã đơn từ người dùng: {ma_don}")
 
     try:
-        sheet = connect_to_sheet().worksheet("Test")
+        sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
         data = sheet.get_all_values()
 
         for i, row in enumerate(data):
@@ -110,7 +110,7 @@ async def confirm_delete_order(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     try:
-        sheet = connect_to_sheet().worksheet("Test")
+        sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
         sheet.delete_rows(row_index)
 
         # 🧹 Gỡ nút cũ và thay nội dung bằng thông báo xóa thành công
