@@ -13,7 +13,7 @@ from menu import show_outer_menu, show_main_selector
 from add_order import add_order_conv, start_add, cancel_add
 from delete_order import get_delete_order_conversation_handler, get_delete_callbacks, start_delete_order
 from update_order import get_update_order_conversation_handler
-from view_due_orders import view_expired_orders, show_expired_order
+from view_due_orders import view_expired_orders, show_expired_order, extend_order
 
 from aiohttp import web
 import asyncio
@@ -97,6 +97,7 @@ async def main():
         button_callback,
         pattern='^(menu_shop|menu_customer|expired|next_expired|prev_expired|back_to_menu|delete)$'
     ))
+    application.add_handler(CallbackQueryHandler(extend_order, pattern=r"^extend_order\|"))
     application.add_handler(get_delete_order_conversation_handler())
     for handler in get_delete_callbacks():
         application.add_handler(handler)
