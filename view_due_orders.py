@@ -113,7 +113,7 @@ async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
         gia_value = row.get("Giá Bán", "")
 
         def clean_price_to_amount(text):
-        return int(
+            return int(
             text.replace(",", "")
                 .replace(".", "")
                 .replace("₫", "")
