@@ -117,7 +117,7 @@ async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
         try:
             clean_value = str(gia_value).replace("đ", "").replace(",", "").replace(" ", "")
             amount = int(float(clean_value))
-            qr_url = f"https://img.vietqr.io/image/VPB-0378304963-compact2.png?amount={amount}&addInfo={order_id_raw}"
+            qr_url = f"https://img.vietqr.io/image/VPB-mavpre-compact2.png?amount={amount}&addInfo={order_id_raw}"
         except:
             qr_url = None
     else:
