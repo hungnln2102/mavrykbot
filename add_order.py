@@ -159,19 +159,32 @@ async def chon_ma_san_pham(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def chon_nguon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    nguon = query.data.split("|", 1)[1]
+    parts = query.data.split("|")
+    if len(parts) < 3:
+        await query.message.reply_text("⚠️ Dữ liệu nguồn không hợp lệ.")
+        return ConversationHandler.END
+
+    nguon = parts[1].strip()
+    gia_raw = parts[2].strip().replace(",", "").replace(" đ", "").replace(".", "")
+    try:
+        gia_value = int(gia_raw)
+    except:
+        gia_value = 0
+
+    gia_format = "{:,} đ".format(gia_value)
+
+    # ✅ Đúng định dạng logic gốc
     context.user_data["nguon"] = nguon
-    dong_san_pham = context.user_data.get("dong_san_pham", [])
-    gia_nhap = dong_san_pham[3] if len(dong_san_pham) > 3 else ""
-    context.user_data["gia_nhap"] = gia_nhap
+    context.user_data["gia_nhap"] = gia_format
+    context.user_data["gia_nhap_value"] = gia_value
+
     reply_markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("❌ Hủy Đơn", callback_data="cancel_add")]
     ])
-    # ❗ Phải dùng context.bot để lấy lại Message object
     msg = await context.bot.edit_message_text(
         chat_id=query.message.chat_id,
         message_id=query.message.message_id,
-        text=f"✅ Đã chọn nguồn: `{nguon}`\n📥 Vui lòng nhập *Thông tin đơn hàng*:",
+        text=f"✅ Đã chọn nguồn: `{nguon}` với giá nhập: `{gia_format}`\n📥 Vui lòng nhập *Thông tin đơn hàng*:",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
