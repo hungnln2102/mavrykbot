@@ -112,18 +112,25 @@ async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
     else:
         gia_value = row.get("Giá Bán", "")
 
+        def clean_price_to_amount(text):
+        return int(
+            text.replace(",", "")
+                .replace(".", "")
+                .replace("₫", "")
+                .replace("đ", "")
+                .replace(" ", "")
+        )
+    # Trong show_expired_order, thay đoạn này:
     if gia_value:
         gia_ban_line += escape_markdown(str(gia_value))
         try:
-            clean_value = str(gia_value).replace("đ", "").replace(",", "").replace(" ", "")
-            amount = int(float(clean_value))
+            amount = clean_price_to_amount(str(gia_value))
             qr_url = f"https://img.vietqr.io/image/VPB-mavpre-compact2.png?amount={amount}&addInfo={order_id_raw}"
         except:
             qr_url = None
     else:
         gia_ban_line += escape_markdown("Chưa xác định")
         qr_url = None
-
     if days_left <= 0:
         header = f"📦 Đơn hàng {product} với Mã đơn {order_id}\n⛔️ Đã hết hạn {abs(days_left)} ngày Trước"
     else:
