@@ -35,6 +35,52 @@ async def view_expired_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     await show_expired_order(update, context, direction="stay")
 
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram.ext import ContextTypes
+from utils import connect_to_sheet
+from datetime import datetime
+from io import BytesIO
+import requests
+from PIL import Image
+from menu import show_main_selector
+
+def escape_markdown(text):
+    special_chars = r'\\_*[]()~`>#+-=|{}.!'
+    return ''.join(f'\\{c}' if c in special_chars else c for c in str(text))
+
+async def view_expired_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    spreadsheet = connect_to_sheet()
+    test_sheet = spreadsheet.worksheet("Bảng Đơn Hàng")
+    data = test_sheet.get_all_records()
+
+    orders = []
+    for row in data:
+        days_left = row.get("Còn Lại")
+        if isinstance(days_left, (int, float)) and days_left <= 4:
+            orders.append(row)
+
+    if not orders:
+        await update.callback_query.message.reply_text(
+            escape_markdown("✅ Hiện không có đơn hàng nào sắp hết hạn."),
+            parse_mode="MarkdownV2"
+        )
+        await show_main_selector(update, context)
+        return
+
+    context.user_data["expired_orders"] = orders
+    context.user_data["expired_index"] = 0
+
+    await show_expired_order(update, context, direction="stay")
+
+def clean_price_to_amount(text):
+    return int(
+        text.replace(",", "")
+            .replace(".", "")
+            .replace("₫", "")
+            .replace("đ", "")
+            .replace(" ", "")
+    )
+
 async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE, direction: str):
     spreadsheet = connect_to_sheet()
     test_sheet = spreadsheet.worksheet("Bảng Đơn Hàng")
@@ -112,25 +158,30 @@ async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
     else:
         gia_value = row.get("Giá Bán", "")
 
-        def clean_price_to_amount(text):
-            return int(
-            text.replace(",", "")
-                .replace(".", "")
-                .replace("₫", "")
-                .replace("đ", "")
-                .replace(" ", "")
-        )
-    # Trong show_expired_order, thay đoạn này:
     if gia_value:
         gia_ban_line += escape_markdown(str(gia_value))
         try:
             amount = clean_price_to_amount(str(gia_value))
             qr_url = f"https://img.vietqr.io/image/VPB-mavpre-compact2.png?amount={amount}&addInfo={order_id_raw}"
+            headers = {"User-Agent": "Mozilla/5.0"}
+            response = requests.get(qr_url, headers=headers)
+            qr_image = BytesIO(response.content)
+            qr_image.name = "qr.png"
+            qr_image.seek(0)
         except:
-            qr_url = None
+            img = Image.new("RGB", (512, 512), "white")
+            qr_image = BytesIO()
+            img.save(qr_image, "PNG")
+            qr_image.name = "qr.png"
+            qr_image.seek(0)
     else:
         gia_ban_line += escape_markdown("Chưa xác định")
-        qr_url = None
+        img = Image.new("RGB", (512, 512), "white")
+        qr_image = BytesIO()
+        img.save(qr_image, "PNG")
+        qr_image.name = "qr.png"
+        qr_image.seek(0)
+
     if days_left <= 0:
         header = f"📦 Đơn hàng {product} với Mã đơn {order_id}\n⛔️ Đã hết hạn {abs(days_left)} ngày Trước"
     else:
@@ -159,15 +210,6 @@ async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
         buttons.append(InlineKeyboardButton("➡️ Next", callback_data="next_expired"))
     reply_markup = InlineKeyboardMarkup([buttons])
 
-    if qr_url:
-        qr_image = BytesIO(requests.get(qr_url).content)
-    else:
-        img = Image.new("RGB", (512, 512), "white")
-        qr_image = BytesIO()
-        img.save(qr_image, "PNG")
-        qr_image.seek(0)
-
-    qr_image.name = "qr.png"
     await update.callback_query.message.edit_media(
         media=InputMediaPhoto(media=qr_image, caption=caption, parse_mode="MarkdownV2"),
         reply_markup=reply_markup
