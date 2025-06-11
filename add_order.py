@@ -9,6 +9,8 @@ from menu import show_outer_menu
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from telegram.helpers import escape_markdown
+from collections import defaultdict
+
 
 CHON_LOAI_KHACH, TEN_SAN_PHAM, CHON_NGUON_MOI, CHON_GIA_NHAP, CHON_KHACH_HANG, CHON_THONG_TIN_DON, CHON_LINK_KHACH, CHON_MA_SAN_PHAM_MOI, CHON_SLOT, CHON_SO_NGAY, CHON_GIA_BAN, CHON_NOTE = range(12)
 
@@ -64,12 +66,14 @@ async def nhap_ten_san_pham(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['ten_san_pham'] = ten_sp
     sheet = connect_to_sheet().worksheet("Bảng Giá")
     data = sheet.get_all_values()[1:]
-    ket_qua = []
+
+    # Gom nhóm các mã giống nhau
+    grouped = defaultdict(list)
     for row in data:
-        san_pham = row[0].strip().lower()
-        if san_pham.startswith(ten_sp):
-            ket_qua.append((row[0], row))
-    # ✨ Chỉnh sửa lại tin nhắn trước đó để phản hồi nhập tên sản phẩm
+        san_pham = row[0].strip()
+        if ten_sp in san_pham.lower():
+            grouped[san_pham].append(row)
+
     try:
         await context.bot.edit_message_text(
             chat_id=update.message.chat_id,
@@ -79,7 +83,8 @@ async def nhap_ten_san_pham(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         print(f"[⚠️ Không thể chỉnh sửa tin nhắn cũ]: {e}")
-    if not ket_qua:
+
+    if not grouped:
         keyboard = [[InlineKeyboardButton("❌ Hủy Đơn", callback_data="cancel_add")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         msg = await update.message.reply_text(
@@ -90,11 +95,11 @@ async def nhap_ten_san_pham(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         context.user_data["last_keyboard_msg_id"] = msg.message_id
         return CHON_MA_SAN_PHAM_MOI
-    context.user_data['ds_san_pham'] = ket_qua
-    # Tạo danh sách nút chọn mã sản phẩm
+
+    context.user_data['grouped_products'] = grouped
     keyboard, row = [], []
-    for index, (ma, _) in enumerate(ket_qua):
-        row.append(InlineKeyboardButton(text=ma, callback_data=f"chon_ma|{ma}"))
+    for index, ma_sp in enumerate(grouped.keys()):
+        row.append(InlineKeyboardButton(text=ma_sp, callback_data=f"chon_ma|{ma_sp}"))
         if len(row) == 2:
             keyboard.append(row)
             row = []
@@ -118,16 +123,21 @@ async def chon_ma_san_pham(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     ma_chon = query.data.split("|", 1)[1]
     context.user_data['ma_chon'] = ma_chon
-    # Tìm dòng tương ứng
-    for ma, row in context.user_data.get('ds_san_pham', []):
-        if ma == ma_chon:
-            context.user_data['dong_san_pham'] = row
-            break
-    nguon = row[2] if len(row) > 2 else "Không rõ"
-    nguon_list = [nguon]
+
+    ds = context.user_data.get("grouped_products", {}).get(ma_chon, [])
+    if not ds:
+        await query.message.reply_text("⚠️ Không tìm thấy nguồn cho mã sản phẩm đã chọn.")
+        return TEN_SAN_PHAM
+
+    context.user_data['ds_san_pham'] = ds  # Lưu lại danh sách nguồn cho mã này
+
     keyboard, row = [], []
-    for index, n in enumerate(nguon_list):
-        row.append(InlineKeyboardButton(n, callback_data=f"chon_nguon|{n}"))
+    for r in ds:
+        nguon = r[2] if len(r) > 2 else "Không rõ"
+        gia = r[3] if len(r) > 3 else "--"
+        label = f"{nguon} - {gia}"
+        callback = f"chon_nguon|{nguon}|{gia}"
+        row.append(InlineKeyboardButton(label, callback_data=callback))
         if len(row) == 2:
             keyboard.append(row)
             row = []
@@ -138,7 +148,6 @@ async def chon_ma_san_pham(update: Update, context: ContextTypes.DEFAULT_TYPE):
         InlineKeyboardButton("❌ Hủy Đơn", callback_data="cancel_add")
     ])
     reply_markup = InlineKeyboardMarkup(keyboard)
-    # ✨ Sửa lại tin nhắn để hiển thị bước chọn nguồn
     msg = await query.message.edit_text(
         f"📦 Mã sản phẩm: `{ma_chon}`\nVui lòng chọn *Nguồn hàng*:",
         reply_markup=reply_markup,
