@@ -557,7 +557,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
         + f"📆 *Bắt đầu:* {ngay_bat_dau}\n"
         + f"⏳ *Thời hạn:* {so_ngay} ngày\n"
         + f"📅 *Hết hạn:* {ngay_het_han_md}\n"
-        + f"💵 *Giá bán:* {gia_ban} VNĐ\n"
+        + f"💵 *Giá bán:* {gia_ban}\n"
 
         f"\n━━━━━━━━━━ 👤 ━━━━━━━━━━\n\n"
 
