@@ -76,12 +76,13 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     ma_don = query.data.split("|")[1]
 
-    sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
+    spreadsheet = connect_to_sheet()
+    sheet = spreadsheet.worksheet("Bảng Đơn Hàng")
     data = sheet.get_all_records()
 
     row_idx = None
     row_data = None
-    for i, row in enumerate(data, start=2):  # Bắt đầu từ dòng 2 (bỏ header)
+    for i, row in enumerate(data, start=2):  # Bỏ dòng tiêu đề
         if str(row.get("ID Đơn Hàng", "")).strip() == ma_don:
             row_idx = i
             row_data = row
@@ -91,7 +92,7 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ Không tìm thấy đơn hàng cần gia hạn.")
         return
 
-    # 📦 Xác định thời hạn từ tên sản phẩm (Edifier --2m)
+    # 📦 Xác định thời hạn từ tên sản phẩm (ví dụ: "Edifier --2m")
     product = row_data.get("Sản Phẩm", "")
     matched = re.search(r"--(\d+)m", product)
     if not matched:
@@ -101,7 +102,7 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     so_thang = int(matched.group(1))
     so_ngay = so_thang * 30
 
-    # 📅 Ngày bắt đầu mới = ngày hết hạn cũ + 1
+    # 📅 Tính ngày bắt đầu và hết hạn mới
     ngay_ket_thuc_cu = row_data.get("Hết Hạn", "")
     try:
         dt_ket_thuc = datetime.strptime(str(ngay_ket_thuc_cu), "%Y-%m-%d")
@@ -116,23 +117,42 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ngay_bat_dau_str = dt_bat_dau_moi.strftime("%d/%m/%Y")
     ngay_ket_thuc_str = tinh_ngay_het_han(ngay_bat_dau_str, str(so_ngay))
 
-    # 📝 Cập nhật Google Sheet
-    sheet.update_cell(row_idx, 7, ngay_bat_dau_str)    # G = Ngày bắt đầu
-    sheet.update_cell(row_idx, 8, str(so_ngay))        # H = Số ngày
-    sheet.update_cell(row_idx, 9, ngay_ket_thuc_str)   # I = Ngày hết hạn
-    sheet.update_cell(row_idx, 10, f"=I{row_idx}-TODAY()")  # J = Còn lại
+    # ✅ Cập nhật ngày và thời hạn
+    sheet.update_cell(row_idx, 7, ngay_bat_dau_str)     # G
+    sheet.update_cell(row_idx, 8, str(so_ngay))         # H
+    sheet.update_cell(row_idx, 9, ngay_ket_thuc_str)    # I
+    sheet.update_cell(row_idx, 10, f"=I{row_idx}-TODAY()")  # J
 
+    # 🔁 Cập nhật giá theo bảng giá nếu có khớp
+    bang_gia_sheet = spreadsheet.worksheet("Bảng Giá")
+    bang_gia_data = bang_gia_sheet.get_all_values()
 
+    matched_row = None
+    for row_bang_gia in bang_gia_data[1:]:
+        ten_sp = row_bang_gia[0].strip().replace("–", "-").replace("—", "-")
+        nguon = row_bang_gia[2].strip()
+        sp_don = product.strip().replace("–", "-").replace("—", "-")
+        nguon_don = row_data.get("Nguồn", "").strip()
+        if ten_sp == sp_don and nguon == nguon_don:
+            matched_row = row_bang_gia
+            break
+
+    if matched_row:
+        is_ctv = ma_don.upper().startswith("MAVC")
+        gia_nhap = matched_row[3]
+        gia_ban = matched_row[4] if is_ctv else matched_row[5]
+        sheet.update_cell(row_idx, 12, gia_nhap)  # L
+        sheet.update_cell(row_idx, 13, gia_ban)   # M
+
+    # 📨 Gửi thông báo thành công
     msg = f"✅ Đơn hàng `{tg_escape_md(ma_don, version=2)}` đã được *gia hạn {so_thang} tháng* thành công\\!"
-
-    # ✅ Gửi tin nhắn mới (text), không sửa ảnh QR
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=msg,
         parse_mode="MarkdownV2"
     )
 
-    # ✅ Gửi lại menu
+    # 🔚 Quay về menu chính
     await show_main_selector(update, context)
 
 async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE, direction: str):
@@ -204,11 +224,7 @@ async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     if matched_row:
         is_ctv = order_id_raw.upper().startswith("MAVC")
-        gia_nhap = matched_row[3]
         gia_ban = matched_row[4] if is_ctv else matched_row[5]
-        # Cập nhật Google Sheet - Cột L (12) và M (13)
-        test_sheet.update_cell(index + 2, 12, gia_nhap)  # L = Giá Nhập
-        test_sheet.update_cell(index + 2, 13, gia_ban)   # M = Giá Bán
         gia_value = gia_ban
     else:
         gia_value = row.get("Giá Bán", "")
