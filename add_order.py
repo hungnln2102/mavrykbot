@@ -660,6 +660,10 @@ async def skip_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def skip_link_khach(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
+    # ✅ Xóa thông tin liên hệ cũ nếu có
+    context.user_data.pop("link_khach", None)
+
     # ✨ Edit lại tin nhắn cũ để phản hồi đã bỏ qua
     try:
         await context.bot.edit_message_text(
@@ -670,6 +674,7 @@ async def skip_link_khach(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         print(f"[⚠️ Không thể chỉnh sửa tin nhắn cũ]: {e}")
+
     # Chuyển sang bước kế tiếp: nhập Slot
     keyboard = [
         [InlineKeyboardButton("⏭ Bỏ Qua", callback_data="skip_slot")],
@@ -683,6 +688,7 @@ async def skip_link_khach(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     context.user_data["last_keyboard_msg_id"] = msg.message_id
     return CHON_SLOT
+
 
 async def cancel_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
