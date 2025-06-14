@@ -4,6 +4,7 @@ from telegram.ext import (
     ConversationHandler, CommandHandler, CallbackQueryHandler,
     ContextTypes
 )
+import re
 from utils import connect_to_sheet, generate_unique_id
 from menu import show_outer_menu
 from datetime import datetime, timedelta
@@ -11,8 +12,7 @@ from dateutil.relativedelta import relativedelta
 from telegram.helpers import escape_markdown
 from collections import defaultdict
 
-
-CHON_LOAI_KHACH, TEN_SAN_PHAM, CHON_NGUON_MOI, CHON_GIA_NHAP, CHON_KHACH_HANG, CHON_THONG_TIN_DON, CHON_LINK_KHACH, CHON_MA_SAN_PHAM_MOI, CHON_SLOT, CHON_SO_NGAY, CHON_GIA_BAN, CHON_NOTE = range(12)
+CHON_LOAI_KHACH, TEN_SAN_PHAM, CHON_NGUON_MOI, CHON_GIA_NHAP,CHON_KHACH_HANG, CHON_THONG_TIN_DON, CHON_LINK_KHACH, CHON_MA_SAN_PHAM_MOI, CHON_SLOT, CHON_GIA_BAN, CHON_NOTE = range(11)
 
 async def start_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -123,6 +123,12 @@ async def chon_ma_san_pham(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     ma_chon = query.data.split("|", 1)[1]
     context.user_data['ma_chon'] = ma_chon
+    so_ngay = extract_days_from_ma_sp(ma_chon)
+    if so_ngay > 0:
+        context.user_data['so_ngay'] = str(so_ngay)
+        context.user_data['skip_so_ngay'] = True  # Gắn cờ để bỏ qua bước hỏi
+    else:
+        context.user_data['skip_so_ngay'] = False
 
     ds = context.user_data.get("grouped_products", {}).get(ma_chon, [])
     if not ds:
@@ -173,10 +179,29 @@ async def chon_nguon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     gia_format = "{:,} đ".format(gia_value)
 
-    # ✅ Đúng định dạng logic gốc
+    # ✅ Lưu giá nhập
     context.user_data["nguon"] = nguon
     context.user_data["gia_nhap"] = gia_format
     context.user_data["gia_nhap_value"] = gia_value
+
+    # ✅ Tự động lấy giá bán từ bảng giá theo MAVC / MAVL
+    ma_don = context.user_data.get("ma_don", "")
+    ds = context.user_data.get("ds_san_pham", [])
+
+    gia_ban = 0
+    for row in ds:
+        if row[2].strip() == nguon:  # So sánh nguồn hàng khớp
+            try:
+                if ma_don.startswith("MAVC") and len(row) > 4:
+                    gia_ban = int(row[4].strip().replace(",", "").replace(" đ", "").replace(".", ""))
+                elif ma_don.startswith("MAVL") and len(row) > 5:
+                    gia_ban = int(row[5].strip().replace(",", "").replace(" đ", "").replace(".", ""))
+            except:
+                gia_ban = 0
+            break
+
+    context.user_data["gia_ban_value"] = gia_ban
+    context.user_data["gia_ban"] = f"{gia_ban:,} đ" if gia_ban else "--"
 
     reply_markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("❌ Hủy Đơn", callback_data="cancel_add")]
@@ -184,12 +209,13 @@ async def chon_nguon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await context.bot.edit_message_text(
         chat_id=query.message.chat_id,
         message_id=query.message.message_id,
-        text=f"✅ Đã chọn nguồn: `{nguon}` với giá nhập: `{gia_format}`\n📥 Vui lòng nhập *Thông tin đơn hàng*:",
+        text=f"✅ Đã chọn nguồn: `{nguon}` với giá nhập: `{gia_format}`\n💵 Giá bán tự động: `{context.user_data['gia_ban']}`\n\n📥 Vui lòng nhập *Thông tin đơn hàng*:",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
     context.user_data["last_keyboard_msg_id"] = msg.message_id
     return CHON_THONG_TIN_DON
+
 
 async def chon_nguon_moi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -299,6 +325,7 @@ async def nhap_khach_hang(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await remove_previous_buttons(update, context)
     khach = update.message.text.strip()
     context.user_data["khach_hang"] = khach
+
     # ✨ Xác nhận lại bước vừa nhập bằng cách sửa tin nhắn cũ
     try:
         await context.bot.edit_message_text(
@@ -309,7 +336,24 @@ async def nhap_khach_hang(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         print(f"[⚠️ Không thể chỉnh sửa tin nhắn cũ]: {e}")
-    # Gửi bước tiếp theo
+
+    # ⚙️ Nếu đã có số ngày từ mã sản phẩm → bỏ qua luôn bước nhập số ngày
+    if context.user_data.get("skip_so_ngay"):
+        context.user_data["slot"] = ""  # Nếu chưa nhập thì bỏ qua slot luôn
+        keyboard = [
+            [InlineKeyboardButton("⏭ Bỏ Qua", callback_data="skip_link")],
+            [InlineKeyboardButton("❌ Hủy Đơn", callback_data="cancel_add")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        msg = await update.message.reply_text(
+            "🔗 Vui lòng nhập *thông tin liên hệ* hoặc bấm 'Bỏ Qua':",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+        context.user_data["last_keyboard_msg_id"] = msg.message_id
+        return CHON_LINK_KHACH
+
+    # ⏩ Nếu không có skip, gửi bước tiếp theo như cũ
     keyboard = [
         [InlineKeyboardButton("⏭ Bỏ Qua", callback_data="skip_link")],
         [InlineKeyboardButton("❌ Hủy Đơn", callback_data="cancel_add")]
@@ -368,9 +412,20 @@ async def nhap_ma_san_pham_moi(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def xu_ly_ma_san_pham_moi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await remove_previous_buttons(update, context)
-    ma_moi = update.message.text.strip()
+
+    # ✅ Chuẩn hóa các dấu gạch thành "--" trước khi xử lý
+    ma_moi = update.message.text.strip().replace("—", "--").replace("–", "--").replace("－", "--")
     context.user_data['ma_chon'] = ma_moi
-    # ✨ Edit lại tin nhắn trước để xác nhận mã mới
+
+    # ✅ Tự động tính số ngày nếu có định dạng --Xm
+    so_ngay = extract_days_from_ma_sp(ma_moi)
+    if so_ngay > 0:
+        context.user_data["so_ngay"] = str(so_ngay)
+        context.user_data["skip_so_ngay"] = True
+    else:
+        context.user_data["skip_so_ngay"] = False
+
+    # ✨ Edit lại tin nhắn trước để xác nhận
     try:
         await context.bot.edit_message_text(
             chat_id=update.message.chat_id,
@@ -380,7 +435,8 @@ async def xu_ly_ma_san_pham_moi(update: Update, context: ContextTypes.DEFAULT_TY
         )
     except Exception as e:
         print(f"[⚠️ Không thể chỉnh sửa tin nhắn cũ]: {e}")
-    # Gửi bước tiếp theo: nhập nguồn nhập hàng
+
+    # 👉 Gửi bước tiếp theo: nhập nguồn nhập hàng
     keyboard = [[InlineKeyboardButton("❌ Hủy Đơn", callback_data="cancel_add")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -396,7 +452,8 @@ async def nhap_slot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await remove_previous_buttons(update, context)
     slot = update.message.text.strip()
     context.user_data["slot"] = slot
-    # ✅ Xác nhận lại slot (sửa tin nhắn cũ)
+
+    # ✅ Xác nhận lại slot vừa nhập
     try:
         await context.bot.edit_message_text(
             chat_id=update.message.chat_id,
@@ -406,49 +463,33 @@ async def nhap_slot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         print(f"[⚠️ Không thể chỉnh sửa tin nhắn cũ]: {e}")
-    # ❗ Sau khi sửa rồi, bây giờ mới gửi bước tiếp theo
-    keyboard = [
-        [InlineKeyboardButton("❌ Hủy Đơn", callback_data="cancel_add")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    msg = await update.message.reply_text(
-        "📆 Vui lòng nhập *Số Ngày Đăng Ký*:",
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
-    # ✅ Lưu đúng message_id của dòng mới nhất
-    context.user_data["last_keyboard_msg_id"] = msg.message_id
-    return CHON_SO_NGAY
 
-async def nhap_so_ngay(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await remove_previous_buttons(update, context)
-    so_ngay = update.message.text.strip()
-    if not so_ngay.isdigit():
-        msg = await update.message.reply_text("⚠️ Vui lòng chỉ nhập dữ liệu dạng số", parse_mode="Markdown")
-        context.user_data["last_keyboard_msg_id"] = msg.message_id
-        return CHON_SO_NGAY
-    context.user_data["so_ngay"] = so_ngay
-    # ✨ Edit lại tin cũ xác nhận số ngày
-    try:
-        await context.bot.edit_message_text(
-            chat_id=update.message.chat_id,
-            message_id=context.user_data.get("last_keyboard_msg_id"),
-            text=f"✅ Đã nhận *Số ngày đăng ký*: `{so_ngay}` ngày",
+    # ✅ Nếu đã có giá bán từ bảng giá → bỏ qua bước nhập giá bán
+    if context.user_data.get("gia_ban_value"):
+        keyboard = [
+            [InlineKeyboardButton("⏭ Bỏ Qua", callback_data="skip_note")],
+            [InlineKeyboardButton("❌ Hủy Đơn", callback_data="cancel_add")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        msg = await update.message.reply_text(
+            "📝 Vui lòng nhập *Ghi chú (nếu có)* hoặc bấm 'Bỏ Qua':",
+            reply_markup=reply_markup,
             parse_mode="Markdown"
         )
-    except Exception as e:
-        print(f"[⚠️ Không thể chỉnh sửa tin nhắn cũ]: {e}")
-    # Gửi bước tiếp theo: nhập giá bán
+        context.user_data["last_keyboard_msg_id"] = msg.message_id
+        return CHON_NOTE
+
+    # ❗ Nếu chưa có giá bán → yêu cầu nhập thủ công
     keyboard = [[InlineKeyboardButton("❌ Hủy Đơn", callback_data="cancel_add")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-
     msg = await update.message.reply_text(
-        "💰 Vui lòng nhập *Giá bán*:",
+        "💰 Vui lòng nhập *Giá bán*: ",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
     context.user_data["last_keyboard_msg_id"] = msg.message_id
     return CHON_GIA_BAN
+
 
 async def nhap_gia_ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await remove_previous_buttons(update, context)
@@ -535,6 +576,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Escape dữ liệu động để tránh lỗi Markdown
     ma_don_md = escape_markdown(ma_don, version=1)
+    ma_san_pham = escape_markdown(info.get("ma_chon", ""), version=1)
     ten_san_pham = escape_markdown(info.get("ten_san_pham", ""), version=1)
     mo_ta = escape_markdown(info.get("thong_tin_don", ""), version=1)
     slot = escape_markdown(info.get("slot", ""), version=1) if info.get("slot") else ""
@@ -551,21 +593,21 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Đơn hàng `{ma_don_md}` đã được tạo thành công!\n\n"
 
         f"📦 *THÔNG TIN SẢN PHẨM*\n"
-        f"🔹 *Tên:* {ten_san_pham}\n"
-        f"📝 *Mô tả:* {mo_ta}\n"
+        f"🔹 *Tên:* {ma_san_pham}\n"
+        f"📝 *Thông Tin Đơn Hàng:* {mo_ta}\n"
         + (f"🧩 *Slot:* {slot}\n" if slot else "")
-        + f"📆 *Bắt đầu:* {ngay_bat_dau}\n"
+        + f"📆 *Ngày Bắt đầu:* {ngay_bat_dau}\n"
         + f"⏳ *Thời hạn:* {so_ngay} ngày\n"
-        + f"📅 *Hết hạn:* {ngay_het_han_md}\n"
+        + f"📅 *Ngày Hết hạn:* {ngay_het_han_md}\n"
         + f"💵 *Giá bán:* {gia_ban}\n"
 
-        f"\n━━━━━━━━━━ 👤 ━━━━━━━━━━\n\n"
+        f"\n━━━━━━ 👤 ━━━━━━\n\n"
 
         f"👤 *THÔNG TIN KHÁCH HÀNG*\n"
-        f"🔸 *Tên:* {khach_hang}\n"
-        + (f"🔗 *Liên hệ:* {link_khach}\n" if link_khach else "")
+        f"🔸 *Tên Khách Hàng:* {khach_hang}\n"
+        + (f"🔗 *Thông Tin Liên hệ:* {link_khach}\n" if link_khach else "")
 
-        + f"\n━━━━━━━━━━ 💳 ━━━━━━━━━━\n\n"
+        + f"\n━━━━━━ 💳 ━━━━━━\n\n"
 
         f"📢 *HƯỚNG DẪN THANH TOÁN*\n"
         f"✅ Vui lòng chuyển khoản đúng nội dung và số tiền.\n"
@@ -594,12 +636,12 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 info.get("link_khach", ""),
                 info.get("slot", ""),
                 info["ngay_bat_dau"],
-                info["so_ngay"],
+                info.get("so_ngay", "0"),
                 ngay_het_han,
                 f"=I{idx}-TODAY()",  # ✅ Công thức tính số ngày còn lại
                 info.get("nguon", ""),
-                info.get("gia_nhap", ""),
-                info.get("gia_ban", ""),
+                info.get("gia_nhap_value", ""),
+                info.get("gia_ban_value", ""),
                 "",
                 info.get("note", ""),
                 f"=IF(J{idx}<=0; \"\"; IF(AND(J{idx}>4; Q{idx}=TRUE); \"Đã Thanh Toán\"; \"Chưa Thanh Toán\"))"
@@ -618,7 +660,8 @@ async def skip_slot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     context.user_data["slot"] = ""
-    # ✅ Edit lại dòng "Vui lòng nhập Slot..." thành "Đã bỏ qua..."
+
+    # ✅ Xác nhận bỏ qua slot
     try:
         await context.bot.edit_message_text(
             chat_id=query.message.chat_id,
@@ -628,16 +671,32 @@ async def skip_slot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         print(f"[⚠️ Không thể chỉnh sửa tin nhắn cũ]: {e}")
-    # Gửi bước tiếp theo
+
+    # ✅ Nếu đã có giá bán → bỏ qua bước nhập, chuyển sang ghi chú
+    if context.user_data.get("gia_ban_value"):
+        keyboard = [
+            [InlineKeyboardButton("⏭ Bỏ Qua", callback_data="skip_note")],
+            [InlineKeyboardButton("❌ Hủy Đơn", callback_data="cancel_add")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        msg = await query.message.reply_text(
+            "📝 Vui lòng nhập *Ghi chú (nếu có)* hoặc bấm 'Bỏ Qua':",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+        context.user_data["last_keyboard_msg_id"] = msg.message_id
+        return CHON_NOTE
+
+    # ❗ Nếu chưa có giá bán → yêu cầu nhập thủ công
     keyboard = [[InlineKeyboardButton("❌ Hủy Đơn", callback_data="cancel_add")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     msg = await query.message.reply_text(
-        "📆 Vui lòng nhập *Số Ngày Đăng Ký*:",
+        "💰 Vui lòng nhập *Giá bán*:",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
     context.user_data["last_keyboard_msg_id"] = msg.message_id
-    return CHON_SO_NGAY
+    return CHON_GIA_BAN
 
 async def skip_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -719,6 +778,18 @@ async def remove_previous_buttons(update: Update, context: ContextTypes.DEFAULT_
     except Exception as e:
         print(f"[⚠️ Không thể xóa nút cũ]: {e}")
 
+def extract_days_from_ma_sp(ma_sp: str) -> int:
+    match = re.search(r"--(\d+)m", ma_sp.lower())
+    if match:
+        thang = int(match.group(1))
+        if thang == 12:
+            return 365
+        elif thang == 24:
+            return 730
+        else:
+            return thang * 30
+    return 0
+
 # Khai báo ConversationHandler tạm thời để tránh lỗi import
 add_order_conv = ConversationHandler(
     entry_points=[CallbackQueryHandler(start_add, pattern="^add$")],
@@ -765,10 +836,6 @@ add_order_conv = ConversationHandler(
             CallbackQueryHandler(skip_slot, pattern="^skip_slot$"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, nhap_slot)
         ],
-        CHON_SO_NGAY: [
-            CallbackQueryHandler(cancel_add, pattern="^cancel_add$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, nhap_so_ngay)
-        ],
         CHON_GIA_BAN: [
             CallbackQueryHandler(cancel_add, pattern="^cancel_add$"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, nhap_gia_ban)
@@ -777,7 +844,7 @@ add_order_conv = ConversationHandler(
             CallbackQueryHandler(cancel_add, pattern="^cancel_add$"),
             CallbackQueryHandler(skip_note, pattern="^skip_note$"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, nhap_note)
-        ]  # Sẽ bổ sung xử lý sau
+        ]
     },
     fallbacks=[CallbackQueryHandler(cancel_add, pattern="^cancel_add$")],
 )
