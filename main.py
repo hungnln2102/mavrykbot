@@ -55,7 +55,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
 
     if query.data == 'menu_shop':
-        await show_main_selector(update, context)
+        await show_main_selector(update, context, edit=True)
     elif query.data == 'menu_customer':
         await query.answer("📌 Phân hệ Khách Hàng sẽ được bổ sung sau.", show_alert=True)
     elif query.data == 'expired':
