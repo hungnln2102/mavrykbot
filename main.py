@@ -14,7 +14,12 @@ from add_order import add_order_conv, start_add, cancel_add
 from delete_order import get_delete_order_conversation_handler, get_delete_callbacks, start_delete_order
 from update_order import get_update_order_conversation_handler
 from view_due_orders import view_expired_orders, show_expired_order, extend_order, delete_order_from_expired
-
+from Payment_Supply import (
+    handle_exit_to_main,
+    handle_source_paid,
+    handle_source_navigation,
+    show_source_payment
+)
 from aiohttp import web
 import asyncio
 from payment_webhook import routes as sepay_routes
@@ -81,6 +86,10 @@ async def handle_webhook(request):
     await request.app["application"].update_queue.put(update)
     return web.Response()
 
+@user_only_filter
+async def thanh_toan_nguon_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await show_source_payment(update, context, index=0)
+
 async def healthcheck(request):
     return web.Response(text="Bot is alive!")
 
@@ -101,6 +110,10 @@ async def main():
     application.add_handler(CallbackQueryHandler(delete_order_from_expired, pattern=r"^delete_order\|"))
     application.add_handler(CallbackQueryHandler(show_expired_order, pattern=r"^next_expired$"))
     application.add_handler(CallbackQueryHandler(show_expired_order, pattern=r"^prev_expired$"))
+    application.add_handler(CallbackQueryHandler(thanh_toan_nguon_handler, pattern='^payment_source$'))
+    application.add_handler(CallbackQueryHandler(handle_exit_to_main, pattern="^exit_to_main$"))
+    application.add_handler(CallbackQueryHandler(handle_source_paid, pattern="^source_paid\\|"))
+    application.add_handler(CallbackQueryHandler(handle_source_navigation, pattern="^source_(next|prev)\\|"))
 
     for handler in get_delete_callbacks():
         application.add_handler(handler)

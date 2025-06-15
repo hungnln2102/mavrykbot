@@ -9,6 +9,9 @@ async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [
             InlineKeyboardButton("👤 Khách Hàng", callback_data='menu_customer'),
             InlineKeyboardButton("🏬 Shop", callback_data='menu_shop')
+        ],
+        [
+            InlineKeyboardButton("💰 Thanh Toán Nguồn", callback_data='payment_source')
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -16,12 +19,18 @@ async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if update.callback_query:
         try:
-            await update.callback_query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+            await update.callback_query.edit_message_text(
+                message, reply_markup=reply_markup, parse_mode='Markdown'
+            )
         except:
             await update.callback_query.message.delete()
-            await update.effective_chat.send_message(message, reply_markup=reply_markup, parse_mode='Markdown')
+            await update.effective_chat.send_message(
+                message, reply_markup=reply_markup, parse_mode='Markdown'
+            )
     elif update.message:
-        await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+        await update.message.reply_text(
+            message, reply_markup=reply_markup, parse_mode='Markdown'
+        )
 
 # Menu SHOP: gồm 5 nút chia thành 3 hàng
 async def show_main_selector(update: Update, context: ContextTypes.DEFAULT_TYPE, edit=False):
