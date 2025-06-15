@@ -13,7 +13,7 @@ from menu import show_outer_menu, show_main_selector
 from add_order import add_order_conv, start_add, cancel_add
 from delete_order import get_delete_order_conversation_handler, get_delete_callbacks, start_delete_order
 from update_order import get_update_order_conversation_handler
-from view_due_orders import view_expired_orders, show_expired_order, extend_order
+from view_due_orders import view_expired_orders, show_expired_order, extend_order, delete_order_from_expired
 
 from aiohttp import web
 import asyncio
@@ -91,14 +91,17 @@ async def main():
     application.add_handler(CommandHandler("menu", start))
     application.add_handler(add_order_conv)
     application.add_handler(get_update_order_conversation_handler())
+    application.add_handler(get_delete_order_conversation_handler())
+
     application.add_handler(CallbackQueryHandler(cancel_add, pattern="^cancel_add$"))
     application.add_handler(CallbackQueryHandler(start_add, pattern="^add$"))
-    application.add_handler(CallbackQueryHandler(
-        button_callback,
-        pattern='^(menu_shop|menu_customer|expired|next_expired|prev_expired|back_to_menu|delete)$'
-    ))
+
+    application.add_handler(CallbackQueryHandler(button_callback, pattern=r'^(menu_shop|menu_customer|expired|next_expired|prev_expired|back_to_menu|delete)$'))
     application.add_handler(CallbackQueryHandler(extend_order, pattern=r"^extend_order\|"))
-    application.add_handler(get_delete_order_conversation_handler())
+    application.add_handler(CallbackQueryHandler(delete_order_from_expired, pattern=r"^delete_order\|"))
+    application.add_handler(CallbackQueryHandler(show_expired_order, pattern=r"^next_expired$"))
+    application.add_handler(CallbackQueryHandler(show_expired_order, pattern=r"^prev_expired$"))
+
     for handler in get_delete_callbacks():
         application.add_handler(handler)
 
@@ -121,3 +124,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+

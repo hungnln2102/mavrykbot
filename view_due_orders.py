@@ -25,27 +25,18 @@ def clean_price_to_amount(text):
 
 async def view_expired_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     spreadsheet = connect_to_sheet()
-    test_sheet = spreadsheet.worksheet("Bảng Đơn Hàng")
-    data = test_sheet.get_all_records()
+    sheet = spreadsheet.worksheet("Bảng Đơn Hàng")
+    data = sheet.get_all_records()
 
-    orders = []
-    for row in data:
-        days_left = row.get("Còn Lại")
-        if isinstance(days_left, (int, float)) and days_left <= 4:
-            orders.append(row)
-
+    orders = [row for row in data if isinstance(row.get("Còn Lại"), (int, float)) and row["Còn Lại"] <= 4]
     if not orders:
-        await update.callback_query.message.reply_text(
-            escape_markdown("✅ Hiện không có đơn hàng nào sắp hết hạn."),
-            parse_mode="MarkdownV2"
-        )
+        await update.callback_query.message.reply_text("✅ Hiện không có đơn hàng nào sắp hết hạn.")
         await show_main_selector(update, context)
         return
 
     context.user_data["expired_orders"] = orders
     context.user_data["expired_index"] = 0
-
-    await show_expired_order(update, context, direction="stay")
+    await show_expired_order(update, context, "stay")
 
 async def view_expired_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     spreadsheet = connect_to_sheet()
@@ -198,20 +189,20 @@ async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
         try:
             parsed = datetime.strptime(str(ngay_dang_ky_raw), "%Y-%m-%d")
             formatted = parsed.strftime("%d/%m/%Y")
-            ngay_dang_ky_line = escape_markdown("📅 Ngày đăng ký: ") + escape_markdown(formatted) + "\n"
+            ngay_dang_ky_line = "📅 Ngày đăng ký: " + escape_markdown(formatted) + "\n"
         except:
-            ngay_dang_ky_line = escape_markdown("📅 Ngày đăng ký: ") + escape_markdown(str(ngay_dang_ky_raw)) + "\n"
+            ngay_dang_ky_line = "📅 Ngày đăng ký: " + escape_markdown(str(ngay_dang_ky_raw)) + "\n"
 
     ngay_het_han_line = ""
     if ngay_het_han_raw:
         try:
             parsed = datetime.strptime(str(ngay_het_han_raw), "%Y-%m-%d")
             formatted = parsed.strftime("%d/%m/%Y")
-            ngay_het_han_line = escape_markdown("⏳ Ngày hết hạn: ") + escape_markdown(formatted) + "\n"
+            ngay_het_han_line = "⏳ Ngày hết hạn: " + escape_markdown(formatted) + "\n"
         except:
-            ngay_het_han_line = escape_markdown("⏳ Ngày hết hạn: ") + escape_markdown(str(ngay_het_han_raw)) + "\n"
+            ngay_het_han_line = "⏳ Ngày hết hạn: " + escape_markdown(str(ngay_het_han_raw)) + "\n"
 
-    gia_ban_line = escape_markdown("💰 Giá tiền: ")
+    gia_ban_line = "💰 Giá tiền: "
     matched_row = None
     for row_bang_gia in bang_gia_data[1:]:
         ten_sp = row_bang_gia[0].strip().replace("–", "-").replace("—", "-")
@@ -236,6 +227,7 @@ async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
             qr_url = f"https://img.vietqr.io/image/VPB-mavpre-compact2.png?amount={amount}&addInfo={order_id_raw}"
             headers = {"User-Agent": "Mozilla/5.0"}
             response = requests.get(qr_url, headers=headers)
+            response.raise_for_status()
             qr_image = BytesIO(response.content)
             qr_image.name = "qr.png"
             qr_image.seek(0)
@@ -254,24 +246,25 @@ async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
         qr_image.seek(0)
 
     if days_left <= 0:
-        header = f"📦 Đơn hàng {product} với Mã đơn {order_id}\n⛔️ Đã hết hạn {abs(days_left)} ngày Trước"
+        header = f"📦 Đơn hàng {product} với Mã đơn `{order_id}`\n⛔️ Đã hết hạn {abs(days_left)} ngày trước"
     else:
-        header = f"📦 Đơn hàng {product} với Mã đơn {order_id}\n⏳ Còn lại {days_left} ngày"
+        header = f"📦 Đơn hàng {product} với Mã đơn `{order_id}`\n⏳ Còn lại {days_left} ngày"
 
     separator = escape_markdown("━━━━━━━━━━━━━━━━━━━━━━")
     body = (
-    f"📦 *THÔNG TIN SẢN PHẨM*\n"
-    f"📝 *Mô tả:* {info}\n"
-    + (f"🧩 *Slot:* {slot_raw}\n" if slot_raw else "")
-    + ngay_dang_ky_line
-    + f"⏳ *Thời hạn:* {row.get('Số Ngày', '')} ngày\n"
-    + ngay_het_han_line
-    + f"💵 *Giá bán:* {gia_value}\n"
-    + "\n━━━━━━━━━━ 👤 ━━━━━━━━━━\n\n"
-    + f"👤 *THÔNG TIN KHÁCH HÀNG*\n"
-    + f"🔸 *Tên:* {customer}\n"
-    + (f"🔗 *Liên hệ:* {row.get('Link Khách', '')}\n" if row.get('Link Khách') else "")
-)
+        "📦 *THÔNG TIN SẢN PHẨM*\n"
+        + "📝 *Mô tả:* " + info + "\n"
+        + ("🧩 *Slot:* " + escape_markdown(slot_raw) + "\n" if slot_raw else "")
+        + ngay_dang_ky_line
+        + f"⏳ *Thời hạn:* {row.get('Số Ngày Đã Đăng Ký', '')} ngày\n"
+        + ngay_het_han_line
+        + f"💵 *Giá bán:* {escape_markdown(str(gia_value))}\n"
+        + "\n━━━━━━━━━━ 👤 ━━━━━━━━━━\n\n"
+        + f"👤 *THÔNG TIN KHÁCH HÀNG*\n"
+        + f"🔸 *Tên:* {customer}\n"
+        + (f"🔗 *Liên hệ:* {escape_markdown(row.get('Link Khách', ''))}\n" if row.get('Link Khách') else "")
+    )
+
     footer = (
         separator + "\n"
         + escape_markdown("💬 Để duy trì dịch vụ liên tục, quý khách nên gia hạn trước ngày hết hạn.") + "\n"
@@ -282,8 +275,6 @@ async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
     caption = header + "\n" + separator + "\n" + body + "\n" + footer + "\n\u200b"
 
     buttons = []
-
-# Dòng điều hướng
     nav_row = []
     if index > 0:
         nav_row.append(InlineKeyboardButton("⬅️ Back", callback_data="prev_expired"))
@@ -292,18 +283,46 @@ async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
     if nav_row:
         buttons.append(nav_row)
 
-    # Dòng chức năng chính
     buttons.append([
         InlineKeyboardButton("🔄 Gia hạn", callback_data=f"extend_order|{order_id_raw}"),
+        InlineKeyboardButton("🗑️ Xóa đơn", callback_data=f"delete_order|{order_id_raw}"),
         InlineKeyboardButton("🔚 Kết thúc", callback_data="back_to_menu")
     ])
+
     reply_markup = InlineKeyboardMarkup(buttons)
 
     await update.callback_query.message.edit_media(
-    media=InputMediaPhoto(media=qr_image, caption=caption, parse_mode="MarkdownV2"),
-    reply_markup=reply_markup
-)
+        media=InputMediaPhoto(media=qr_image, caption=caption, parse_mode="MarkdownV2"),
+        reply_markup=reply_markup
+    )
+
+async def delete_order_from_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    ma_don = query.data.split("|")[1]
+
+    sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
+    data = sheet.get_all_values()
+    deleted = False
+
+    for i, row in enumerate(data):
+        if row and row[0].strip() == ma_don.strip():
+            sheet.delete_rows(i + 1)
+            deleted = True
+            break
+
+    if deleted:
+        await query.message.delete()  # ✅ Xóa QR cũ trước
+
+        text = f"✅ Đơn hàng `{escape_markdown(ma_don)}` đã được xoá thành công\\!"
+        await update.effective_chat.send_message(text, parse_mode="MarkdownV2")
+
+        await show_main_selector(update, context)
 
 
-# Thêm vào list handler trong function setup hoặc return ConversationHandler
-extend_order_handler = CallbackQueryHandler(extend_order, pattern=r"^extend_order\|")
+
+# Handlers
+prev_expired_handler = CallbackQueryHandler(lambda u, c: show_expired_order(u, c, "prev"), pattern="^prev_expired$")
+next_expired_handler = CallbackQueryHandler(lambda u, c: show_expired_order(u, c, "next"), pattern="^next_expired$")
+delete_order_handler = CallbackQueryHandler(delete_order_from_expired, pattern=r"^delete_order\||")
+extend_order_handler = CallbackQueryHandler(extend_order, pattern=r"^extend_order\||")

@@ -642,7 +642,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 info.get("nguon", ""),
                 info.get("gia_nhap_value", ""),
                 info.get("gia_ban_value", ""),
-                "",
+                f"=M{idx}*J{idx}/H{idx}",
                 info.get("note", ""),
                 f"=IF(J{idx}<=0; \"\"; IF(AND(J{idx}>4; Q{idx}=TRUE); \"Đã Thanh Toán\"; \"Chưa Thanh Toán\"))"
             ]
