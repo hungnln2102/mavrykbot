@@ -190,13 +190,14 @@ async def chon_nguon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     gia_ban = 0
     for row in ds:
-        if row[2].strip() == nguon:  # So sánh nguồn hàng khớp
+        if row[2].strip().lower() == nguon.lower():  # ✅ So sánh không phân biệt hoa thường
             try:
                 if ma_don.startswith("MAVC") and len(row) > 4:
-                    gia_ban = int(row[4].strip().replace(",", "").replace(" đ", "").replace(".", ""))
+                    gia_ban = int(re.sub(r"[^\d]", "", row[4]))
                 elif ma_don.startswith("MAVL") and len(row) > 5:
-                    gia_ban = int(row[5].strip().replace(",", "").replace(" đ", "").replace(".", ""))
-            except:
+                    gia_ban = int(re.sub(r"[^\d]", "", row[5]))
+            except Exception as e:
+                print(f"[⚠️ Lỗi parse giá bán]: {e}")
                 gia_ban = 0
             break
 
