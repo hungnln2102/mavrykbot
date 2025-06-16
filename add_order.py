@@ -78,7 +78,7 @@ async def nhap_ten_san_pham(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.edit_message_text(
             chat_id=update.message.chat_id,
             message_id=context.user_data.get("last_keyboard_msg_id"),
-            text=f"✅ Đã nhận tên sản phẩm: *{ten_sp}*",
+            text=f"✅ Đã nhận tên sản phẩm: `{ten_sp}`",
             parse_mode="Markdown"
         )
     except Exception as e:
@@ -273,9 +273,15 @@ async def nhap_gia_nhap(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         context.user_data["last_keyboard_msg_id"] = msg.message_id
         return CHON_GIA_NHAP
+
     # ✅ Nếu hợp lệ, lưu giá trị
     context.user_data["gia_nhap"] = "{:,} đ".format(gia_value)
     context.user_data["gia_nhap_value"] = gia_value
+
+    # ✅ Vì nguồn mới nên bắt buộc nhập tay giá bán → gán 0
+    context.user_data["gia_ban_value"] = 0
+    context.user_data["gia_ban"] = ""
+
     # ✨ Cập nhật lại tin nhắn trước đó để xác nhận đã nhập
     try:
         await context.bot.edit_message_text(
@@ -286,6 +292,7 @@ async def nhap_gia_nhap(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         print(f"[⚠️ Không thể chỉnh sửa tin nhắn cũ]: {e}")
+
     # Gửi prompt kế tiếp
     keyboard = [[InlineKeyboardButton("❌ Hủy Đơn", callback_data="cancel_add")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
