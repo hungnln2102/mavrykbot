@@ -1,5 +1,7 @@
 # update_order.py
 import logging
+import re
+from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes, ConversationHandler, CommandHandler,
@@ -48,6 +50,21 @@ def format_order_message(row):
 )
 
     return message
+
+async def notify_and_menu(update, context, text):
+    if update.callback_query:
+        await update.callback_query.message.delete()
+        chat_id = update.callback_query.message.chat_id
+    else:
+        await update.message.delete()
+        chat_id = update.message.chat_id
+
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=text,  # Không escape nữa
+        parse_mode="MarkdownV2"
+    )
+    await show_main_selector(update, context)
 
 # ❌ KHÔNG escape toàn bộ message ở trong safe_send!
 async def safe_send(update, message, markup):
@@ -121,10 +138,17 @@ async def input_value_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 context.user_data['selected_row'] = idx + 1
                 context.user_data['ma_don'] = row[0]
                 message = format_order_message(row)
-                buttons = [[
-                    InlineKeyboardButton("🛠 Cập nhật đơn", callback_data="start_edit"),
-                    InlineKeyboardButton("❌ Kết Thúc", callback_data="end_update_with_cancel")
-                ]]
+                buttons = [
+                    [
+                        InlineKeyboardButton("🔁 Gia Hạn", callback_data=f"extend_order|{row[0]}"),
+                        InlineKeyboardButton("🗑 Xoá Đơn", callback_data=f"delete_order|{row[0]}")
+                    ],
+                    [
+                        InlineKeyboardButton("🛠 Cập nhật đơn", callback_data="start_edit"),
+                        InlineKeyboardButton("❌ Kết Thúc", callback_data="end_update_with_cancel")
+                    ]
+                ]
+
                 await safe_send(update, message, InlineKeyboardMarkup(buttons))
                 return SELECT_FIELD
         await update.message.reply_text("❌ Không tìm thấy mã đơn hàng. Quay về menu chính.")
@@ -141,10 +165,17 @@ async def input_value_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             context.user_data['selected_row'] = row_idx
             context.user_data['ma_don'] = row[0]
             message = format_order_message(row)
-            buttons = [[
-                InlineKeyboardButton("🛠 Cập nhật đơn", callback_data="start_edit"),
-                InlineKeyboardButton("❌ Kết Thúc", callback_data="end_update_with_cancel")
-            ]]
+            buttons = [
+                [
+                    InlineKeyboardButton("🔁 Gia Hạn", callback_data=f"extend_order|{row[0]}"),
+                    InlineKeyboardButton("🗑 Xoá Đơn", callback_data=f"delete_order|{row[0]}")
+                ],
+                [
+                    InlineKeyboardButton("🛠 Cập nhật đơn", callback_data="start_edit"),
+                    InlineKeyboardButton("❌ Kết Thúc", callback_data="end_update_with_cancel")
+                ]
+            ]
+
             await safe_send(update, message, InlineKeyboardMarkup(buttons))
             return SELECT_FIELD
 
@@ -152,6 +183,75 @@ async def input_value_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data['matched_index'] = 0
         await update.message.reply_text("⏳ Đang tải đơn hàng đầu tiên...")
         return await show_matched_order(update, context)
+
+async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    ma_don = query.data.split("|")[1]
+
+    sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
+    data = sheet.get_all_records()
+
+    row_idx = None
+    row_data = None
+    for i, row in enumerate(data, start=2):
+        if str(row.get("ID Đơn Hàng", "")).strip() == ma_don:
+            row_idx = i
+            row_data = row
+            break
+
+    if not row_data:
+        return await notify_and_menu(update, context, "❌ Không tìm thấy đơn hàng cần gia hạn.")
+
+    product = row_data.get("Sản Phẩm", "")
+    match = re.search(r"--(\d+)m", product)
+    if not match:
+        return await notify_and_menu(update, context, "⚠️ Không xác định được thời hạn từ tên sản phẩm.")
+
+    so_thang = int(match.group(1))
+    so_ngay = so_thang * 30
+
+    ngay_cuoi_cu = row_data.get("Hết Hạn", "").strip()
+    if not ngay_cuoi_cu:
+        return await notify_and_menu(update, context, "⚠️ Không có ngày hết hạn cũ để tính gia hạn.")
+
+    try:
+        start_dt = datetime.strptime(ngay_cuoi_cu, "%d/%m/%Y") + timedelta(days=1)
+    except:
+        return await notify_and_menu(update, context, "⚠️ Ngày hết hạn cũ không đúng định dạng.")
+
+    ngay_bat_dau_moi = start_dt.strftime("%d/%m/%Y")
+    ngay_het_han_moi = tinh_ngay_het_han(ngay_bat_dau_moi, str(so_ngay))
+
+    sheet.update_cell(row_idx, 8, str(so_ngay))           # H (cột 8)
+    sheet.update_cell(row_idx, 7, ngay_bat_dau_moi)       # G (cột 7)
+    sheet.update_cell(row_idx, 9, ngay_het_han_moi)       # I (cột 9)
+    sheet.update_cell(row_idx, 10, f"=I{row_idx}-TODAY()")# J (cột 10)
+    escaped_ma_don = escape_markdown(ma_don, version=2)
+    message = f"✅ Đơn hàng `{escaped_ma_don}` đã được gia hạn thành công\\!"
+    await safe_send(update, message, markup=None)
+    await show_main_selector(update, context)
+    return ConversationHandler.END
+
+async def delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    ma_don = query.data.split("|")[1]
+
+    sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
+    data = sheet.get_all_values()
+
+    for i, row in enumerate(data):
+        if row and row[0].strip() == ma_don.strip():
+            sheet.delete_rows(i + 1)
+            escaped_ma_don = escape_markdown(ma_don, version=2)
+            message = f"🗑 Đơn hàng `{escaped_ma_don}` đã được xoá thành công\\!"
+            await safe_send(update, message, markup=None)
+            await show_main_selector(update, context)
+            return ConversationHandler.END
+
+    await notify_and_menu(update, context, "❌ Không tìm thấy đơn hàng để xoá.")
+    return ConversationHandler.END
 
 async def show_matched_order(update: Update, context: ContextTypes.DEFAULT_TYPE, direction="stay"):
     matched_orders = context.user_data.get("matched_orders", [])
@@ -178,7 +278,13 @@ async def show_matched_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
         nav.append(InlineKeyboardButton("➡️ Next", callback_data="next_matched"))
     if nav:
         buttons.append(nav)
-    buttons.append([InlineKeyboardButton("🛠 Cập nhật đơn", callback_data="start_edit")])
+    buttons.append([
+    InlineKeyboardButton("🔁 Gia Hạn", callback_data=f"extend_order|{row[0]}"),
+    InlineKeyboardButton("🗑 Xoá Đơn", callback_data=f"delete_order|{row[0]}")
+    ])
+    buttons.append([
+        InlineKeyboardButton("🛠 Cập nhật đơn", callback_data="start_edit")
+    ])
 
     await safe_send(update, message, InlineKeyboardMarkup(buttons))
     return SELECT_FIELD
@@ -288,7 +394,9 @@ def get_update_order_conversation_handler():
                 CallbackQueryHandler(lambda u, c: show_matched_order(u, c, "prev"), pattern="^prev_matched$"),
                 CallbackQueryHandler(lambda u, c: show_matched_order(u, c, "next"), pattern="^next_matched$"),
                 CallbackQueryHandler(start_edit_update, pattern="^start_edit$"),
-                CallbackQueryHandler(choose_field_to_edit, pattern="^edit_col_.*")
+                CallbackQueryHandler(choose_field_to_edit, pattern="^edit_col_.*"),
+                CallbackQueryHandler(extend_order, pattern="^extend_order\\|"),
+                CallbackQueryHandler(delete_order, pattern="^delete_order\\|")
             ],
             INPUT_NEW_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_new_value_handler)]
         },
