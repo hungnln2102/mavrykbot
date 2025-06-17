@@ -48,6 +48,35 @@ async def view_expired_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data["expired_orders"] = orders_dict
     context.user_data["expired_index"] = 0
     await show_expired_order(update, context, direction="stay")
+    
+def get_gia_ban(ma_don, ma_san_pham, nguon, ds_banggia):
+    # Chuẩn hoá tên sản phẩm và nguồn trong đơn
+    sp_don = ma_san_pham.strip().replace("–", "--").replace("—", "--")
+    nguon_don = nguon.strip()
+
+    for row in ds_banggia:
+        if len(row) < 6:
+            continue
+        # Chuẩn hoá dòng từ bảng giá
+        sp_goc = row[0].strip().replace("–", "--").replace("—", "--")
+        nguon_goc = row[2].strip()
+
+        if sp_goc == sp_don and nguon_goc == nguon_don:
+            try:
+                gia_str = row[4] if ma_don.upper().startswith("MAVC") else row[5]
+                return int(
+                    str(gia_str)
+                    .replace(",", "")
+                    .replace(".", "")
+                    .replace(" đ", "")
+                    .replace(" ₫", "")
+                    .replace("₫", "")
+                    .replace("đ", "")
+                    .strip()
+                )
+            except:
+                return 0
+    return 0
 
 def build_order_caption(data):
     product_raw = data.get("Sản Phẩm", "")
@@ -68,7 +97,16 @@ def build_order_caption(data):
     ngay_dang_ky_line = f"📅 Ngày đăng ký: {escape_markdown(ngay_dang_ky_raw)}\n" if ngay_dang_ky_raw else ""
     ngay_het_han_line = f"⏳ Ngày hết hạn: {escape_markdown(ngay_het_han_raw)}\n" if ngay_het_han_raw else ""
 
-    gia_value = data.get("Giá Bán", "") or "Chưa xác định"
+    spreadsheet = connect_to_sheet()
+    bang_gia_sheet = spreadsheet.worksheet("Bảng Giá")
+    bang_gia_data = bang_gia_sheet.get_all_values()
+
+    ma_san_pham = data.get("Sản Phẩm", "")
+    nguon = data.get("Nguồn", "")
+    ma_don = data.get("ID Đơn Hàng", "")
+    gia_int = get_gia_ban(ma_don, ma_san_pham, nguon, bang_gia_data)
+    gia_value = "{:,} đ".format(gia_int) if gia_int > 0 else "Chưa xác định"
+
     try:
         amount = clean_price_to_amount(str(gia_value))
         qr_url = f"https://img.vietqr.io/image/VPB-mavpre-compact2.png?amount={amount}&addInfo={order_id_raw}"
@@ -169,9 +207,9 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     matched_row = None
     for row_bang_gia in bang_gia_data[1:]:
-        ten_sp = row_bang_gia[0].strip().replace("–", "-").replace("—", "-")
+        ten_sp = row_bang_gia[0].strip().replace("–", "--").replace("—", "--")
         nguon = row_bang_gia[2].strip()
-        sp_don = product.strip().replace("–", "-").replace("—", "-")
+        sp_don = product.strip().replace("–", "--").replace("—", "--")
         nguon_don = row_data.get("Nguồn", "").strip()
         if ten_sp == sp_don and nguon == nguon_don:
             matched_row = row_bang_gia
