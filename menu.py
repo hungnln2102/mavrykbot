@@ -1,5 +1,6 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
+import telegram
 
 ADMIN_USER_IDS = [510811276]
 
@@ -7,7 +8,7 @@ ADMIN_USER_IDS = [510811276]
 async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
-            InlineKeyboardButton("👤 Khách Hàng", callback_data='menu_customer'),
+            InlineKeyboardButton("📥 Đơn Chưa Thanh Toán", callback_data='unpaid_orders'),
             InlineKeyboardButton("🏬 Shop", callback_data='menu_shop')
         ],
         [
@@ -22,15 +23,23 @@ async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.callback_query.edit_message_text(
                 message, reply_markup=reply_markup, parse_mode='Markdown'
             )
-        except:
-            await update.callback_query.message.delete()
-            await update.effective_chat.send_message(
-                message, reply_markup=reply_markup, parse_mode='Markdown'
-            )
+        except telegram.error.BadRequest as e:
+            # Nếu lỗi do không tìm thấy tin nhắn để sửa → xoá thử
+            if "message to edit not found" in str(e).lower():
+                try:
+                    await update.callback_query.message.delete()
+                except:
+                    pass
+                await update.effective_chat.send_message(
+                    message, reply_markup=reply_markup, parse_mode='Markdown'
+                )
+            else:
+                raise e
     elif update.message:
         await update.message.reply_text(
             message, reply_markup=reply_markup, parse_mode='Markdown'
         )
+
 
 # Menu SHOP: gồm 5 nút chia thành 3 hàng
 async def show_main_selector(update: Update, context: ContextTypes.DEFAULT_TYPE, edit=False):

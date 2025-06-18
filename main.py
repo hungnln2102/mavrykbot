@@ -13,6 +13,13 @@ from menu import show_outer_menu, show_main_selector
 from add_order import add_order_conv, start_add, cancel_add
 from delete_order import get_delete_order_conversation_handler, get_delete_callbacks, start_delete_order
 from update_order import get_update_order_conversation_handler
+from View_order_unpaid import (
+    view_unpaid_orders,
+    show_unpaid_order,
+    delete_unpaid_order,
+    mark_paid_unpaid_order,
+    exit_unpaid
+)
 from view_due_orders import view_expired_orders, show_expired_order, extend_order, delete_order_from_expired
 from Payment_Supply import (
     handle_exit_to_main,
@@ -61,8 +68,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == 'menu_shop':
         await show_main_selector(update, context, edit=True)
-    elif query.data == 'menu_customer':
-        await query.answer("📌 Phân hệ Khách Hàng sẽ được bổ sung sau.", show_alert=True)
+    elif query.data == 'unpaid_orders':
+        await view_unpaid_orders(update, context)
     elif query.data == 'expired':
         await view_expired_orders(update, context)
     elif query.data == 'next_expired':
@@ -95,16 +102,13 @@ async def healthcheck(request):
 
 async def main():
     application = Application.builder().token(BOT_TOKEN).rate_limiter(AIORateLimiter()).build()
-
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", start))
     application.add_handler(add_order_conv)
     application.add_handler(get_update_order_conversation_handler())
     application.add_handler(get_delete_order_conversation_handler())
-
     application.add_handler(CallbackQueryHandler(cancel_add, pattern="^cancel_add$"))
     application.add_handler(CallbackQueryHandler(start_add, pattern="^add$"))
-
     application.add_handler(CallbackQueryHandler(button_callback, pattern=r'^(menu_shop|menu_customer|expired|next_expired|prev_expired|back_to_menu|delete)$'))
     application.add_handler(CallbackQueryHandler(extend_order, pattern=r"^extend_order\|"))
     application.add_handler(CallbackQueryHandler(delete_order_from_expired, pattern=r"^delete_order\|"))
@@ -114,6 +118,12 @@ async def main():
     application.add_handler(CallbackQueryHandler(handle_exit_to_main, pattern="^exit_to_main$"))
     application.add_handler(CallbackQueryHandler(handle_source_paid, pattern="^source_paid\\|"))
     application.add_handler(CallbackQueryHandler(handle_source_navigation, pattern="^source_(next|prev)\\|"))
+    application.add_handler(CallbackQueryHandler(view_unpaid_orders, pattern="^unpaid_orders$"))
+    application.add_handler(CallbackQueryHandler(lambda u, c: show_unpaid_order(u, c, "next"), pattern="^next_unpaid$"))
+    application.add_handler(CallbackQueryHandler(lambda u, c: show_unpaid_order(u, c, "prev"), pattern="^prev_unpaid$"))
+    application.add_handler(CallbackQueryHandler(delete_unpaid_order, pattern="^delete_unpaid\\|"))
+    application.add_handler(CallbackQueryHandler(mark_paid_unpaid_order, pattern="^paid_unpaid\\|"))
+    application.add_handler(CallbackQueryHandler(exit_unpaid, pattern="^exit_unpaid$"))
 
     for handler in get_delete_callbacks():
         application.add_handler(handler)
