@@ -2,7 +2,6 @@ import requests
 import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import ContextTypes, CallbackQueryHandler, ConversationHandler
-from telegram.helpers import escape_markdown as tg_escape_md
 from utils import connect_to_sheet
 from add_order import tinh_ngay_het_han
 from datetime import datetime, timedelta
@@ -10,7 +9,6 @@ from io import BytesIO
 from PIL import Image
 from menu import show_main_selector
 from collections import OrderedDict
-
 
 def escape_markdown(text):
     special_chars = r'\\_*[]()~`>#+-=|{}.!'
@@ -48,7 +46,7 @@ async def view_expired_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data["expired_orders"] = orders_dict
     context.user_data["expired_index"] = 0
     await show_expired_order(update, context, direction="stay")
-    
+
 def get_gia_ban(ma_don, ma_san_pham, nguon, ds_banggia):
     sp_don = ma_san_pham.strip().replace("–", "--").replace("—", "--")
     nguon_don = nguon.strip()
@@ -144,6 +142,26 @@ def build_order_caption(data):
 
     return header + "\n" + escape_markdown("━━━━━━━━━━━━━━━━━━━━━━") + "\n" + body + "\n" + footer, qr_image
 
+
+# ✅ Thêm xử lý cho nút "Kết thúc" an toàn
+async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    try:
+        await query.message.delete()
+    except:
+        pass
+
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text="🔽 Chọn menu...",
+        reply_markup=await show_main_selector(update, context),
+        parse_mode="Markdown"
+    )
+    return ConversationHandler.END
+
+
 async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -179,7 +197,7 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         so_ngay = so_thang * 30
 
     # 📅 Tính ngày bắt đầu và hết hạn mới
-    ngay_ket_thuc_cu = row_data.get("Hết Hạn", "")
+    ngay_ket_thuc_cu = row_data.get("Ngày Hết Hạn", "")
     try:
         dt_ket_thuc = datetime.strptime(str(ngay_ket_thuc_cu), "%Y-%m-%d")
     except:
