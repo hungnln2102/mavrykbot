@@ -179,7 +179,7 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         so_ngay = so_thang * 30
 
     # 📅 Tính ngày bắt đầu và hết hạn mới
-    ngay_ket_thuc_cu = row_data.get("Ngày Hết Hạn", "")
+    ngay_ket_thuc_cu = row_data.get("Hết Hạn", "")
     try:
         dt_ket_thuc = datetime.strptime(str(ngay_ket_thuc_cu), "%Y-%m-%d")
     except:
