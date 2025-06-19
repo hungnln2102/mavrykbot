@@ -8,8 +8,11 @@ ADMIN_USER_IDS = [510811276]
 async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
-            InlineKeyboardButton("👤 Khách Hàng", callback_data='menu_customer'),
+            InlineKeyboardButton("👤 Đơn Chưa Thanh Toán", callback_data='unpaid_orders'),
             InlineKeyboardButton("🏬 Shop", callback_data='menu_shop')
+        ],
+        [
+            InlineKeyboardButton("💰 Thanh Toán Nguồn", callback_data='payment_source')
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
