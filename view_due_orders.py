@@ -43,21 +43,19 @@ async def view_expired_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode="MarkdownV2"
         )
         await show_main_selector(update, context)
-        return
+        return ConversationHandler.END
 
     context.user_data["expired_orders"] = orders_dict
     context.user_data["expired_index"] = 0
     await show_expired_order(update, context, direction="stay")
     
 def get_gia_ban(ma_don, ma_san_pham, nguon, ds_banggia):
-    # Chuẩn hoá tên sản phẩm và nguồn trong đơn
     sp_don = ma_san_pham.strip().replace("–", "--").replace("—", "--")
     nguon_don = nguon.strip()
 
     for row in ds_banggia:
         if len(row) < 6:
             continue
-        # Chuẩn hoá dòng từ bảng giá
         sp_goc = row[0].strip().replace("–", "--").replace("—", "--")
         nguon_goc = row[2].strip()
 
@@ -181,7 +179,7 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         so_ngay = so_thang * 30
 
     # 📅 Tính ngày bắt đầu và hết hạn mới
-    ngay_ket_thuc_cu = row_data.get("Hết Hạn", "")
+    ngay_ket_thuc_cu = row_data.get("Ngày Hết Hạn", "")
     try:
         dt_ket_thuc = datetime.strptime(str(ngay_ket_thuc_cu), "%Y-%m-%d")
     except:
