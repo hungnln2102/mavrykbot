@@ -1,7 +1,7 @@
 import requests
 import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
-from telegram.ext import ContextTypes, CallbackQueryHandler
+from telegram.ext import ContextTypes, CallbackQueryHandler, ConversationHandler
 from telegram.helpers import escape_markdown as tg_escape_md
 from utils import connect_to_sheet
 from add_order import tinh_ngay_het_han
@@ -309,13 +309,20 @@ async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
             reply_markup=reply_markup
         )
     except:
-        # Nếu edit_media lỗi, gửi ảnh mới
-        await update.callback_query.message.reply_photo(
+        try:
+            await update.callback_query.message.delete()
+        except:
+            pass
+
+        await update.effective_chat.send_photo(
             photo=qr_image,
             caption=caption,
             parse_mode="MarkdownV2",
             reply_markup=reply_markup
         )
+
+    return ConversationHandler.END
+
 
 async def delete_order_from_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -361,6 +368,7 @@ async def delete_order_from_expired(update: Update, context: ContextTypes.DEFAUL
         await show_main_selector(update, context)
         context.user_data.pop("expired_orders", None)
         context.user_data.pop("expired_index", None)
+        return ConversationHandler.END
 
 
 # Handlers
