@@ -8,11 +8,8 @@ ADMIN_USER_IDS = [510811276]
 async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
-            InlineKeyboardButton("📥 Đơn Chưa Thanh Toán", callback_data='unpaid_orders'),
+            InlineKeyboardButton("👤 Khách Hàng", callback_data='menu_customer'),
             InlineKeyboardButton("🏬 Shop", callback_data='menu_shop')
-        ],
-        [
-            InlineKeyboardButton("💰 Thanh Toán Nguồn", callback_data='payment_source')
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -24,8 +21,7 @@ async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message, reply_markup=reply_markup, parse_mode='Markdown'
             )
         except telegram.error.BadRequest as e:
-            # Nếu lỗi do không tìm thấy tin nhắn để sửa → xoá thử
-            if "message to edit not found" in str(e).lower():
+            if "message to edit not found" in str(e).lower() or "no text" in str(e).lower():
                 try:
                     await update.callback_query.message.delete()
                 except:
