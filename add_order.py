@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from telegram.helpers import escape_markdown
 from collections import defaultdict
+from column import SHEETS, PRICE_COLUMNS, ORDER_COLUMNS
 
 CHON_LOAI_KHACH, TEN_SAN_PHAM, CHON_NGUON_MOI, CHON_GIA_NHAP,CHON_KHACH_HANG, CHON_THONG_TIN_DON, CHON_LINK_KHACH, CHON_MA_SAN_PHAM_MOI, CHON_SLOT, CHON_GIA_BAN, CHON_NOTE = range(11)
 
@@ -46,12 +47,14 @@ async def chon_loai_khach(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     loai_khach = query.data.replace("loai_khach_", "")
     context.user_data["loai_khach"] = loai_khach
-    sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
+
+    sheet = connect_to_sheet().worksheet(SHEETS["ORDER"])
     ma_don = generate_unique_id(sheet, loai_khach)
     context.user_data["ma_don"] = ma_don
+
     keyboard = [[InlineKeyboardButton("❌ Hủy Đơn", callback_data="cancel_add")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    # 🧾 Chỉnh sửa lại tin nhắn cũ thành thông báo mã đơn hàng mới
+
     msg = await query.message.edit_text(
         f"🧾 Mã đơn hàng: `{ma_don}` đã được khởi tạo thành công.\n\nVui lòng nhập *Tên Sản Phẩm*:",
         reply_markup=reply_markup,
@@ -64,7 +67,7 @@ async def nhap_ten_san_pham(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await remove_previous_buttons(update, context)
     ten_sp = update.message.text.strip().lower()
     context.user_data['ten_san_pham'] = ten_sp
-    sheet = connect_to_sheet().worksheet("Bảng Giá")
+    sheet = connect_to_sheet().worksheet(SHEETS["PRICE"])
     data = sheet.get_all_values()[1:]
 
     # Gom nhóm các mã giống nhau
@@ -139,8 +142,8 @@ async def chon_ma_san_pham(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard, row = [], []
     for r in ds:
-        nguon = r[2] if len(r) > 2 else "Không rõ"
-        gia = r[3] if len(r) > 3 else "--"
+        nguon = r[PRICE_COLUMNS["NGUON"]] if len(r) > PRICE_COLUMNS["NGUON"] else "Không rõ"
+        gia = r[PRICE_COLUMNS["GIA_NHAP"]] if len(r) > PRICE_COLUMNS["GIA_NHAP"] else "--"
         label = f"{nguon} - {gia}"
         callback = f"chon_nguon|{nguon}|{gia}"
         row.append(InlineKeyboardButton(label, callback_data=callback))
@@ -179,23 +182,22 @@ async def chon_nguon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     gia_format = "{:,} đ".format(gia_value)
 
-    # ✅ Lưu giá nhập
     context.user_data["nguon"] = nguon
     context.user_data["gia_nhap"] = gia_format
     context.user_data["gia_nhap_value"] = gia_value
 
-    # ✅ Tự động lấy giá bán từ bảng giá theo MAVC / MAVL
+    # ✅ Tự động lấy giá bán từ bảng giá
     ma_don = context.user_data.get("ma_don", "")
     ds = context.user_data.get("ds_san_pham", [])
 
     gia_ban = 0
     for row in ds:
-        if row[2].strip().lower() == nguon.lower():  # ✅ So sánh không phân biệt hoa thường
+        if row[PRICE_COLUMNS["NGUON"]].strip().lower() == nguon.lower():
             try:
-                if ma_don.startswith("MAVC") and len(row) > 4:
-                    gia_ban = int(re.sub(r"[^\d]", "", row[4]))
-                elif ma_don.startswith("MAVL") and len(row) > 5:
-                    gia_ban = int(re.sub(r"[^\d]", "", row[5]))
+                if ma_don.startswith("MAVC") and len(row) > PRICE_COLUMNS["GIA_BAN_CTV"]:
+                    gia_ban = int(re.sub(r"[^\d]", "", row[PRICE_COLUMNS["GIA_BAN_CTV"]]))
+                elif ma_don.startswith("MAVL") and len(row) > PRICE_COLUMNS["GIA_BAN_LE"]:
+                    gia_ban = int(re.sub(r"[^\d]", "", row[PRICE_COLUMNS["GIA_BAN_LE"]]))
             except Exception as e:
                 print(f"[⚠️ Lỗi parse giá bán]: {e}")
                 gia_ban = 0
@@ -210,13 +212,14 @@ async def chon_nguon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await context.bot.edit_message_text(
         chat_id=query.message.chat_id,
         message_id=query.message.message_id,
-        text=f"✅ Đã chọn nguồn: `{nguon}` với giá nhập: `{gia_format}`\n💵 Giá bán tự động: `{context.user_data['gia_ban']}`\n\n📥 Vui lòng nhập *Thông tin đơn hàng*:",
+        text=f"✅ Đã chọn nguồn: `{nguon}` với giá nhập: `{gia_format}`\n"
+             f"💵 Giá bán tự động: `{context.user_data['gia_ban']}`\n\n"
+             f"📥 Vui lòng nhập *Thông tin đơn hàng*:",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
     context.user_data["last_keyboard_msg_id"] = msg.message_id
     return CHON_THONG_TIN_DON
-
 
 async def chon_nguon_moi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -498,7 +501,6 @@ async def nhap_slot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["last_keyboard_msg_id"] = msg.message_id
     return CHON_GIA_BAN
 
-
 async def nhap_gia_ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await remove_previous_buttons(update, context)
     try:
@@ -582,7 +584,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info["ngay_bat_dau"] = ngay_bat_dau_str
     ngay_het_han = tinh_ngay_het_han(ngay_bat_dau_str, info.get("so_ngay", "0"))
 
-    # Escape dữ liệu động để tránh lỗi Markdown
+    # Escape Markdown để tránh lỗi khi gửi Telegram
     ma_don_md = escape_markdown(ma_don, version=1)
     ma_san_pham = escape_markdown(info.get("ma_chon", ""), version=1)
     ten_san_pham = escape_markdown(info.get("ten_san_pham", ""), version=1)
@@ -599,7 +601,6 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     msg = (
         f"✅ Đơn hàng `{ma_don_md}` đã được tạo thành công!\n\n"
-
         f"📦 *THÔNG TIN SẢN PHẨM*\n"
         f"🔹 *Tên:* {ma_san_pham}\n"
         f"📝 *Thông Tin Đơn Hàng:* {mo_ta}\n"
@@ -608,26 +609,34 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
         + f"⏳ *Thời hạn:* {so_ngay} ngày\n"
         + f"📅 *Ngày Hết hạn:* {ngay_het_han_md}\n"
         + f"💵 *Giá bán:* {gia_ban}\n"
-
         f"\n━━━━━━ 👤 ━━━━━━\n\n"
-
         f"👤 *THÔNG TIN KHÁCH HÀNG*\n"
         f"🔸 *Tên Khách Hàng:* {khach_hang}\n"
         + (f"🔗 *Thông Tin Liên hệ:* {link_khach}\n" if link_khach else "")
-
         + f"\n━━━━━━ 💳 ━━━━━━\n\n"
-
         f"📢 *HƯỚNG DẪN THANH TOÁN*\n"
         f"✅ Vui lòng chuyển khoản đúng nội dung và số tiền.\n"
         f"📞 Mọi thắc mắc xin liên hệ lại Shop để được hỗ trợ.\n\n"
         f"🙏 *Cảm ơn quý khách đã tin tưởng và ủng hộ Mavryk Store!* ✨"
     )
 
-    sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
+    sheet = connect_to_sheet().worksheet(SHEETS["ORDER"])
 
-    # --- Ghi dữ liệu vào dòng trống đầu tiên ---
-    columns_to_check = [1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 14]
-    all_columns = [sheet.col_values(col) for col in columns_to_check]
+    # Dò dòng trống
+    columns_to_check = [
+        ORDER_COLUMNS["SAN_PHAM"],
+        ORDER_COLUMNS["THONG_TIN_DON"],
+        ORDER_COLUMNS["TEN_KHACH"],
+        ORDER_COLUMNS["LINK_KHACH"],
+        ORDER_COLUMNS["SLOT"],
+        ORDER_COLUMNS["NGAY_DANG_KY"],
+        ORDER_COLUMNS["SO_NGAY"],
+        ORDER_COLUMNS["NGUON"],
+        ORDER_COLUMNS["GIA_NHAP"],
+        ORDER_COLUMNS["GIA_BAN"],
+        ORDER_COLUMNS["NOTE"]
+    ]
+    all_columns = [sheet.col_values(col + 1) for col in columns_to_check]
     max_row = sheet.row_count
 
     for idx in range(2, max_row + 1):
@@ -636,25 +645,25 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for col in all_columns
         )
         if not row_has_data:
-            row_data = [
-                ma_don,
-                info.get("ma_chon", ""),
-                info.get("thong_tin_don", ""),
-                info.get("khach_hang", ""),
-                info.get("link_khach", ""),
-                info.get("slot", ""),
-                info["ngay_bat_dau"],
-                info.get("so_ngay", "0"),
-                ngay_het_han,
-                f"=I{idx}-TODAY()",  # ✅ Công thức tính số ngày còn lại
-                info.get("nguon", ""),
-                info.get("gia_nhap_value", ""),
-                info.get("gia_ban_value", ""),
-                f"=M{idx}*J{idx}/H{idx}",
-                info.get("note", ""),
-                f"=IF(J{idx}<=0; \"\"; IF(AND(J{idx}>4; Q{idx}=TRUE); \"Đã Thanh Toán\"; \"Chưa Thanh Toán\"))"
-            ]
-            sheet.update(f"A{idx}:P{idx}", [row_data], value_input_option="USER_ENTERED")
+            row_data = ["" for _ in range(len(ORDER_COLUMNS))]
+            row_data[ORDER_COLUMNS["ID_DON_HANG"]] = ma_don
+            row_data[ORDER_COLUMNS["SAN_PHAM"]] = info.get("ma_chon", "")
+            row_data[ORDER_COLUMNS["THONG_TIN_DON"]] = info.get("thong_tin_don", "")
+            row_data[ORDER_COLUMNS["TEN_KHACH"]] = info.get("khach_hang", "")
+            row_data[ORDER_COLUMNS["LINK_KHACH"]] = info.get("link_khach", "")
+            row_data[ORDER_COLUMNS["SLOT"]] = info.get("slot", "")
+            row_data[ORDER_COLUMNS["NGAY_DANG_KY"]] = info["ngay_bat_dau"]
+            row_data[ORDER_COLUMNS["SO_NGAY"]] = info.get("so_ngay", "0")
+            row_data[ORDER_COLUMNS["HET_HAN"]] = ngay_het_han
+            row_data[ORDER_COLUMNS["CON_LAI"]] = f"=I{idx}-TODAY()"
+            row_data[ORDER_COLUMNS["NGUON"]] = info.get("nguon", "")
+            row_data[ORDER_COLUMNS["GIA_NHAP"]] = info.get("gia_nhap_value", "")
+            row_data[ORDER_COLUMNS["GIA_BAN"]] = info.get("gia_ban_value", "")
+            row_data[ORDER_COLUMNS["GIA_TRI_CON_LAI"]] = f"=M{idx}*J{idx}/H{idx}"
+            row_data[ORDER_COLUMNS["NOTE"]] = info.get("note", "")
+            row_data[ORDER_COLUMNS["TINH_TRANG"]] = f'=IF(J{idx}<=0; ""; IF(AND(J{idx}>4; Q{idx}=TRUE); "Đã Thanh Toán"; "Chưa Thanh Toán"))'
+
+            sheet.update(f"A{idx}:Q{idx}", [row_data], value_input_option="USER_ENTERED")
             break
     else:
         print("❌ Không tìm thấy dòng phù hợp để ghi.")

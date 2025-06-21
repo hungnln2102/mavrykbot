@@ -1,4 +1,4 @@
-# fly.toml app configuration file generated for mavryk-store-bot on 2025-05-29T22:13:48+07:00
+# fly.toml app configuration file generated for mavryk-store-bot-bitter-wildflower-5922 on 2025-06-20T22:29:52+07:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
@@ -11,9 +11,9 @@ primary_region = 'sin'
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = 'stop'
+  auto_stop_machines = false
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 0
   processes = ['app']
 
 [[vm]]

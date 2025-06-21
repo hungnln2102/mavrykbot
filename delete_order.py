@@ -9,6 +9,7 @@ import asyncio
 from utils import connect_to_sheet
 from config import logger
 from menu import show_main_selector
+from column import SHEETS, ORDER_COLUMNS
 
 ASK_MA_DON = range(1)
 
@@ -31,17 +32,20 @@ async def start_delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 # 👉 Hiển thị thông tin đơn hàng
 def format_order_info(ma_don, row):
-    def safe(i): return escape_markdown(row[i], version=2) if len(row) > i and row[i].strip() else ""
+    def safe(col_key):
+        i = ORDER_COLUMNS[col_key]
+        return escape_markdown(row[i], version=2) if len(row) > i and row[i].strip() else ""
+
     return (
         f"🧾 *Xác nhận xóa đơn hàng:*\n"
         f"📦 *Mã đơn:* `{escape_markdown(ma_don, version=2)}`\n"
-        f"🔹 *Sản phẩm:* {safe(1)}\n"
-        f"📝 *Thông tin sản phẩm:* {safe(2)}\n"
-        f"👤 *Khách:* {safe(3)}\n"
-        + (f"📌 *Slot:* {safe(4)}\n" if safe(4) else "")
-        + f"📅 *Ngày đăng ký:* {safe(5)}\n"
-        + f"📆 *Số ngày:* {safe(6)} ngày\n"
-        + f"💰 *Giá:* {safe(10)}"
+        f"🔹 *Sản phẩm:* {safe('SAN_PHAM')}\n"
+        f"📝 *Thông tin sản phẩm:* {safe('THONG_TIN_DON')}\n"
+        f"👤 *Khách:* {safe('TEN_KHACH')}\n"
+        + (f"📌 *Slot:* {safe('SLOT')}\n" if safe("SLOT") else "")
+        + f"📅 *Ngày đăng ký:* {safe('NGAY_DANG_KY')}\n"
+        + f"📆 *Số ngày:* {safe('SO_NGAY')} ngày\n"
+        + f"💰 *Giá:* {safe('GIA_BAN')}"
     )
 
 # 👉 Nhận mã đơn và hiển thị thông tin
@@ -64,11 +68,11 @@ async def nhan_ma_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"🔍 Nhận mã đơn từ người dùng: {ma_don}")
 
     try:
-        sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
+        sheet = connect_to_sheet().worksheet(SHEETS["ORDER"])
         data = sheet.get_all_values()
 
         for i, row in enumerate(data):
-            if row and row[0] == ma_don:
+            if row and row[ORDER_COLUMNS["ID_DON_HANG"]].strip() == ma_don:
                 context.user_data["row_index"] = i + 1
                 keyboard = [[
                     InlineKeyboardButton("✅ Xác Nhận Xóa", callback_data=f"confirm_delete_{ma_don}"),
@@ -110,7 +114,7 @@ async def confirm_delete_order(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     try:
-        sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
+        sheet = connect_to_sheet().worksheet(SHEETS["ORDER"])
         sheet.delete_rows(row_index)
 
         # 🧹 Gỡ nút cũ và thay nội dung bằng thông báo xóa thành công
@@ -119,7 +123,7 @@ async def confirm_delete_order(update: Update, context: ContextTypes.DEFAULT_TYP
             parse_mode=ParseMode.MARKDOWN_V2
         )
 
-        # 🆕 Gửi menu mới (không sửa lại dòng trên)
+        # 🆕 Gửi menu mới
         await show_main_selector(update, context, edit=False)
 
     except Exception as e:
