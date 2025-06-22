@@ -62,9 +62,9 @@ async def send_qr_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     caption = (
-        f"Số Tài Khoản: 9183400998"
-        f"Ngân Hàng: VP Bank"
-        f"Chủ Tài Khoản: NGO LE NGOC HUNG"
+        f"💳Số Tài Khoản: 9183400998\n"
+        f"🏦Ngân Hàng: VP Bank\n"
+        f"👨Chủ Tài Khoản: NGO LE NGOC HUNG\n"
         f"\U0001F4B0 *Số Tiền Cần Thanh Toán:* {gia_value} đ\n"
         f"\U0001F4DD *Nội Dung Thanh Toán:* {note}\n"
         f"============\n"
