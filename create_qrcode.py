@@ -5,7 +5,7 @@ from telegram.ext import (
 from telegram.helpers import escape_markdown
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 import re
-
+from menu import show_outer_menu
 ASK_AMOUNT, ASK_NOTE = range(2)
 
 # 🟩 Bắt đầu quy trình tạo QR
@@ -72,7 +72,9 @@ async def send_qr_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     await update.message.reply_photo(photo=qr_url, caption=caption, parse_mode="Markdown")
+    await show_outer_menu(update, context)  # ✅ Gọi lại menu ngoài sau khi gửi QR
     return ConversationHandler.END
+
 
 # ❌ Huỷ tạo QR code
 async def cancel_qr(update: Update, context: ContextTypes.DEFAULT_TYPE):
