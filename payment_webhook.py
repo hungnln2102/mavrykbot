@@ -8,8 +8,8 @@ WEBHOOK_SECRET = "b9d02dd9510d4570a9d176bc401f4754"
 
 
 def extract_ma_don(text):
-    match = re.search(r"MAV\w{5,}", text)
-    return match.group(0) if match else None
+    # Lấy tất cả mã đơn theo định dạng MAVxxxxx trở lên
+    return re.findall(r"MAV\w{5,}", text)
 
 
 routes = web.RouteTableDef()
@@ -20,15 +20,16 @@ async def handle_payment(request):
     try:
         data = await request.json()
         content = data.get("content", "")
-        ma_don = extract_ma_don(content)
+        ma_don_list = extract_ma_don(content)
+        ma_don_str = " - ".join(ma_don_list) if ma_don_list else ""
 
         sheet = connect_to_sheet().worksheet(SHEETS["RECEIPT"])
         values = [
-            ma_don or "",
-            data.get("transactionDate", ""),
-            data.get("transferAmount", ""),
-            data.get("accountNumber", ""),
-            content
+            ma_don_str,                                   # Cột A: Mã đơn (1 hoặc nhiều, cách nhau bằng " - ")
+            data.get("transactionDate", ""),              # Cột B: Thời gian giao dịch
+            data.get("transferAmount", ""),               # Cột C: Số tiền chuyển
+            data.get("accountNumber", ""),                # Cột D: Số tài khoản
+            content                                        # Cột E: Nội dung gốc
         ]
         sheet.append_row(values)
 
