@@ -575,7 +575,6 @@ def tinh_ngay_het_han(ngay_bat_dau_str, so_ngay_dang_ky):
         print(f"[LỖI TÍNH NGÀY]: {e}")
         return ""
 
-
 async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info = context.user_data
     ma_don = info.get("ma_don", "")
@@ -597,7 +596,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE):
     khach_hang = escape_markdown(info.get("khach_hang", ""), version=1)
     link_khach = escape_markdown(info.get("link_khach", ""), version=1) if info.get("link_khach") else ""
 
-    qr_url = f"https://img.vietqr.io/image/VPB-mavpre-compact2.png?amount={gia_value}&addInfo={ma_don}"
+    qr_url = f"https://img.vietqr.io/image/VPB-mavpre-compact2.png?amount={gia_value}&addInfo={ma_don}&accountName=NGO%20LE%20NGOC%20HUNG"
 
     msg = (
         f"✅ Đơn hàng `{ma_don_md}` đã được tạo thành công!\n\n"

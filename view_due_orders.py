@@ -135,7 +135,7 @@ def build_order_caption(row: list):
     # Tạo QR từ VietQR
     try:
         amount = clean_price_to_amount(gia_value)
-        qr_url = f"https://img.vietqr.io/image/VPB-mavpre-compact2.png?amount={amount}&addInfo={ma_don}"
+        qr_url = f"https://img.vietqr.io/image/VPB-mavpre-compact2.png?amount={amount}&addInfo={ma_don}&accountName=NGO%20LE%20NGOC%20HUNG"
         response = requests.get(qr_url, headers={"User-Agent": "Mozilla/5.0"})
         response.raise_for_status()
         qr_image = BytesIO(response.content)

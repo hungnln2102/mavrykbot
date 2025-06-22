@@ -10,6 +10,7 @@ from telegram.ext import (
 
 #Menu and Function Menu
 from menu import show_outer_menu, show_main_selector
+from create_qrcode import qr_conversation
 from add_order import add_order_conv, start_add, cancel_add
 from delete_order import get_delete_order_conversation_handler, get_delete_callbacks, start_delete_order
 from update_order import get_update_order_conversation_handler
@@ -124,6 +125,7 @@ async def main():
     application.add_handler(CallbackQueryHandler(delete_unpaid_order, pattern="^delete_unpaid\\|"))
     application.add_handler(CallbackQueryHandler(mark_paid_unpaid_order, pattern="^paid_unpaid\\|"))
     application.add_handler(CallbackQueryHandler(exit_unpaid, pattern="^exit_unpaid$"))
+    application.add_handler(qr_conversation)
 
     for handler in get_delete_callbacks():
         application.add_handler(handler)
