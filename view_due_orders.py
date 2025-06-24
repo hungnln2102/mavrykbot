@@ -134,7 +134,8 @@ def build_order_caption(row: list):
     # Lấy giá bán từ bảng giá
     bang_gia_sheet = connect_to_sheet().worksheet(SHEETS["PRICE"])
     bang_gia_data = bang_gia_sheet.get_all_values()
-    gia_int = get_gia_ban(ma_don, product, nguon, bang_gia_data)
+    gia_ban_donhang = row[ORDER_COLUMNS["GIA_BAN"]]
+    gia_int = get_gia_ban(ma_don, product, bang_gia_data, gia_ban_donhang=gia_ban_donhang)
     gia_value = "{:,} đ".format(gia_int) if gia_int > 0 else "Chưa xác định"
     gia_md = escape_markdown(str(gia_value))
 
