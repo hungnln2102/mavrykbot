@@ -81,11 +81,10 @@ def get_gia_ban(ma_don, ma_san_pham, banggia_data, gia_ban_donhang=None):
     """
     Trả về giá bán ưu tiên theo bảng giá. Nếu không tìm được hoặc giá = 0 thì fallback về giá trong đơn hàng.
     """
-    # Chuẩn hoá mã sản phẩm
     ma_sp = str(ma_san_pham).strip().replace("–", "--").replace("—", "--")
     is_ctv = str(ma_don).upper().startswith("MAVC")
 
-    for row in banggia_data[1:]:  # Bỏ header
+    for row in banggia_data[1:]:
         if len(row) <= max(PRICE_COLUMNS["GIA_BAN_CTV"], PRICE_COLUMNS["GIA_BAN_LE"]):
             continue
 
@@ -98,10 +97,14 @@ def get_gia_ban(ma_don, ma_san_pham, banggia_data, gia_ban_donhang=None):
                     return gia
             except Exception as e:
                 print(f"[⚠️ Lỗi parse giá trong bảng giá]: {e}")
-            break  # Nếu sai giá hoặc lỗi, không tiếp tục vòng lặp nữa
+            break
 
-    # Fallback: lấy từ đơn hàng nếu không tìm được hoặc giá bảng giá = 0
+    # Fallback nếu không có hoặc lỗi
+    if isinstance(gia_ban_donhang, list):
+        gia_ban_donhang = gia_ban_donhang[0] if gia_ban_donhang else ""
+
     return clean_price_to_amount(gia_ban_donhang) if gia_ban_donhang else 0
+
 
 
 def build_order_caption(row: list):
