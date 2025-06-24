@@ -79,27 +79,30 @@ def clean_price_string(gia_str):
 
 def get_gia_ban(ma_don, ma_san_pham, banggia_data, gia_ban_donhang=None):
     """
-    Trả về giá bán ưu tiên theo bảng giá. Nếu không tìm được thì lấy từ đơn hàng.
+    Trả về giá bán ưu tiên theo bảng giá. Nếu không tìm được hoặc giá = 0 thì fallback về giá trong đơn hàng.
     """
-    ma_sp = ma_san_pham.strip().replace("–", "--").replace("—", "--")
-    is_ctv = ma_don.upper().startswith("MAVC")
+    # Chuẩn hoá mã sản phẩm
+    ma_sp = str(ma_san_pham).strip().replace("–", "--").replace("—", "--")
+    is_ctv = str(ma_don).upper().startswith("MAVC")
 
-    for row in banggia_data[1:]:  # bỏ header
-        if len(row) < max(PRICE_COLUMNS["GIA_BAN_CTV"], PRICE_COLUMNS["GIA_BAN_LE"]) + 1:
+    for row in banggia_data[1:]:  # Bỏ header
+        if len(row) <= max(PRICE_COLUMNS["GIA_BAN_CTV"], PRICE_COLUMNS["GIA_BAN_LE"]):
             continue
 
-        sp_goc = row[PRICE_COLUMNS["TEN_SAN_PHAM"]].strip().replace("–", "--").replace("—", "--")
+        sp_goc = str(row[PRICE_COLUMNS["TEN_SAN_PHAM"]]).strip().replace("–", "--").replace("—", "--")
         if sp_goc == ma_sp:
             try:
                 gia_str = row[PRICE_COLUMNS["GIA_BAN_CTV"]] if is_ctv else row[PRICE_COLUMNS["GIA_BAN_LE"]]
                 gia = clean_price_to_amount(gia_str)
                 if gia > 0:
                     return gia
-            except:
-                break
+            except Exception as e:
+                print(f"[⚠️ Lỗi parse giá trong bảng giá]: {e}")
+            break  # Nếu sai giá hoặc lỗi, không tiếp tục vòng lặp nữa
 
-    # Nếu không tìm thấy → fallback về giá trong đơn hàng
+    # Fallback: lấy từ đơn hàng nếu không tìm được hoặc giá bảng giá = 0
     return clean_price_to_amount(gia_ban_donhang) if gia_ban_donhang else 0
+
 
 def build_order_caption(row: list):
     # Lấy dữ liệu theo chỉ số
