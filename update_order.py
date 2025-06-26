@@ -39,7 +39,7 @@ def get_action_buttons(ma_don):
     ])
 
 def format_order_message(row):
-    slot = f"🎯 Slot: {row[ORDER_COLUMNS['SLOT']]}\n" if row[ORDER_COLUMNS['SLOT']] else ""
+    slot = f"{row[ORDER_COLUMNS['SLOT']]}\n" if row[ORDER_COLUMNS['SLOT']] else ""
     link_khach = row[ORDER_COLUMNS['LINK_KHACH']] if row[ORDER_COLUMNS['LINK_KHACH']] else None
     return (
         f"✅ *CHI TIẾT ĐƠN HÀNG*\n"
