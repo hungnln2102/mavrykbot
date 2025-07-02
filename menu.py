@@ -1,8 +1,10 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 import telegram
+import logging
 
 ADMIN_USER_IDS = [510811276]
+logger = logging.getLogger(__name__)
 
 # Menu ngoài cùng: Chọn phân hệ
 async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -21,18 +23,21 @@ async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         if update.callback_query:
+            logger.info("🔹 show_outer_menu: edit_message_text")
             await update.callback_query.edit_message_text(
                 text=message,
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
         elif update.message:
+            logger.info("🔹 show_outer_menu: reply_text")
             await update.message.reply_text(
                 text=message,
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
     except telegram.error.BadRequest as e:
+        logger.warning(f"⚠️ Lỗi khi show_outer_menu: {e}")
         if "message to edit not found" in str(e).lower() or "no text" in str(e).lower():
             try:
                 await update.callback_query.message.delete()
@@ -49,6 +54,8 @@ async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Menu SHOP: gồm 5 nút chia thành 3 hàng
 async def show_main_selector(update: Update, context: ContextTypes.DEFAULT_TYPE, edit=False):
+    logger.info(f"🔹 show_main_selector(edit={edit}) called")
+
     keyboard = [
         [
             InlineKeyboardButton("📝 Thêm Đơn Hàng", callback_data='add'),
@@ -67,18 +74,21 @@ async def show_main_selector(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     try:
         if update.callback_query and edit:
+            logger.info("🔄 show_main_selector: edit_message_text")
             await update.callback_query.edit_message_text(
                 text=message,
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
         else:
+            logger.info("✉️ show_main_selector: send_message")
             await update.effective_chat.send_message(
                 text=message,
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
-    except telegram.error.BadRequest:
+    except telegram.error.BadRequest as e:
+        logger.warning(f"❌ Lỗi trong show_main_selector: {e}")
         await update.effective_chat.send_message(
             text=message,
             reply_markup=reply_markup,
