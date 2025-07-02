@@ -19,26 +19,32 @@ async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     message = "🔽 *Chọn phân hệ làm việc:*"
 
-    if update.callback_query:
-        try:
+    try:
+        if update.callback_query:
             await update.callback_query.edit_message_text(
-                message, reply_markup=reply_markup, parse_mode='Markdown'
+                text=message,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
             )
-        except telegram.error.BadRequest as e:
-            if "message to edit not found" in str(e).lower() or "no text" in str(e).lower():
-                try:
-                    await update.callback_query.message.delete()
-                except:
-                    pass
-                await update.effective_chat.send_message(
-                    message, reply_markup=reply_markup, parse_mode='Markdown'
-                )
-            else:
-                raise e
-    elif update.message:
-        await update.message.reply_text(
-            message, reply_markup=reply_markup, parse_mode='Markdown'
-        )
+        elif update.message:
+            await update.message.reply_text(
+                text=message,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+    except telegram.error.BadRequest as e:
+        if "message to edit not found" in str(e).lower() or "no text" in str(e).lower():
+            try:
+                await update.callback_query.message.delete()
+            except:
+                pass
+            await update.effective_chat.send_message(
+                text=message,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        else:
+            raise e
 
 
 # Menu SHOP: gồm 5 nút chia thành 3 hàng
@@ -59,10 +65,22 @@ async def show_main_selector(update: Update, context: ContextTypes.DEFAULT_TYPE,
     reply_markup = InlineKeyboardMarkup(keyboard)
     message = "🔽 *Chọn chức năng:*"
 
-    if update.callback_query and edit:
-        await update.callback_query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
-    elif update.callback_query:
-        # ✅ Gửi menu mới bằng tin nhắn mới, không sửa tin cũ
-        await update.effective_chat.send_message(message, reply_markup=reply_markup, parse_mode='Markdown')
-    elif update.message:
-        await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+    try:
+        if update.callback_query and edit:
+            await update.callback_query.edit_message_text(
+                text=message,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        else:
+            await update.effective_chat.send_message(
+                text=message,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+    except telegram.error.BadRequest:
+        await update.effective_chat.send_message(
+            text=message,
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
