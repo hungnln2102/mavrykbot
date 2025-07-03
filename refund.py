@@ -1,8 +1,9 @@
 # refund.py
 
 import logging
+import asyncio # Thêm thư viện asyncio để tạo độ trễ
 from datetime import datetime
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
@@ -12,9 +13,10 @@ from telegram.ext import (
     filters,
 )
 
-# Giả sử bạn có file g_sheets.py để tương tác với Google Sheet
-# from g_sheets import append_to_sheet 
-# from column import SHEETS
+# Import các thành phần cần thiết
+from menu import show_outer_menu
+# from g_sheets import append_to_sheet # Bỏ comment nếu bạn dùng
+# from column import SHEETS, REFUND_COLUMNS # Bỏ comment nếu bạn dùng
 
 # Cấu hình logging
 logger = logging.getLogger(__name__)
@@ -23,87 +25,108 @@ logger = logging.getLogger(__name__)
 GET_ORDER_ID, GET_AMOUNT = range(2)
 
 async def start_refund(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Bắt đầu cuộc hội thoại hoàn tiền, yêu cầu mã đơn hàng."""
+    """Bắt đầu quy trình, yêu cầu mã đơn hàng và hiển thị nút Hủy."""
     query = update.callback_query
     await query.answer()
-    
+
+    keyboard = [[InlineKeyboardButton("❌ Hủy và quay lại", callback_data='cancel_refund')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
     await query.edit_message_text(
         text="💸 **QUY TRÌNH HOÀN TIỀN** 💸\n\n"
-             "Vui lòng nhập **Mã Đơn Hàng** cần hoàn tiền.\n\n"
-             "Nhập /huy để hủy bỏ.",
+             "Vui lòng nhập **Mã Đơn Hàng** cần hoàn tiền.",
+        reply_markup=reply_markup,
         parse_mode='Markdown'
     )
+    
+    context.user_data['refund_message_id'] = query.message.message_id
+    
     return GET_ORDER_ID
 
 async def handle_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Lưu mã đơn hàng và yêu cầu số tiền."""
+    """Lưu mã đơn hàng và yêu cầu số tiền (không có nút)."""
     order_id = update.message.text
     context.user_data['refund_order_id'] = order_id
     logger.info(f"Refund - Order ID: {order_id}")
 
-    await update.message.reply_text(
+    await update.message.delete()
+
+    # Chỉnh sửa tin nhắn của bot để yêu cầu số tiền
+    # **Lưu ý: reply_markup=None để xóa nút bấm đi**
+    await context.bot.edit_message_text(
+        chat_id=update.effective_chat.id,
+        message_id=context.user_data.get('refund_message_id'),
         text=f"✅ Đã ghi nhận mã đơn: `{order_id}`\n\n"
              f"Bây giờ, vui lòng nhập **Số Tiền** cần hoàn.",
+        reply_markup=None, # Xóa bàn phím inline
         parse_mode='Markdown'
     )
     return GET_AMOUNT
 
 async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Lưu số tiền, xử lý dữ liệu và kết thúc cuộc hội thoại."""
+    """Lưu số tiền, xử lý, thông báo và tự động quay về menu."""
     amount_text = update.message.text
     try:
-        # Cố gắng chuyển đổi thành số để xác thực
         amount = float(amount_text.replace(',', '').replace('.', ''))
     except ValueError:
-        await update.message.reply_text(
-            "Số tiền không hợp lệ. Vui lòng chỉ nhập số.\n"
-            "Hãy thử lại hoặc nhập /huy để hủy bỏ."
+        # Nếu nhập sai, yêu cầu nhập lại và hiện lại nút Hủy
+        keyboard = [[InlineKeyboardButton("❌ Hủy và quay lại", callback_data='cancel_refund')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=context.user_data.get('refund_message_id'),
+            text="❌ Số tiền không hợp lệ. Vui lòng chỉ nhập số.\n\n"
+                 "Hãy thử lại hoặc bấm nút Hủy bên dưới.",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
         )
-        return GET_AMOUNT # Yêu cầu nhập lại
+        await update.message.delete()
+        return GET_AMOUNT
 
     order_id = context.user_data.get('refund_order_id')
-    logger.info(f"Refund - Amount: {amount} for Order ID: {order_id}")
-
-    # Lấy ngày giờ hiện tại và định dạng
     now = datetime.now()
     formatted_date = now.strftime("%d/%m/%Y %H:%M:%S")
 
-    # Chuẩn bị dữ liệu để ghi vào sheet
-    row_data = [order_id, formatted_date, amount]
+    # Ghi dữ liệu vào Google Sheet (ví dụ)
+    # append_to_sheet(SHEETS["REFUND"], [order_id, formatted_date, amount])
+    logger.info(f"Đã ghi vào sheet 'Hoàn Tiền': {[order_id, formatted_date, amount]}")
 
-    try:
-        # =================================================================
-        # GỌI HÀM GHI VÀO GOOGLE SHEET TẠI ĐÂY
-        # Ví dụ: append_to_sheet(SHEETS["REFUND"], row_data)
-        # Vì chưa có hàm, chúng ta sẽ tạm log ra màn hình
-        logger.info(f"Đang ghi vào sheet 'Hoàn Tiền': {row_data}")
-        # =================================================================
+    await update.message.delete()
 
-        await update.message.reply_text(
-            "✅ **THÀNH CÔNG!**\n\n"
-            "Đã lưu thông tin hoàn tiền:\n"
-            f"  - Mã Đơn Hàng: `{order_id}`\n"
-            f"  - Số Tiền: `{amount_text}`\n"
-            f"  - Thời Gian: `{formatted_date}`",
-            parse_mode='Markdown'
-        )
-    except Exception as e:
-        logger.error(f"Lỗi khi ghi thông tin hoàn tiền: {e}")
-        await update.message.reply_text(
-            "❌ Đã xảy ra lỗi khi lưu thông tin. Vui lòng thử lại sau."
-        )
-        
-    # Dọn dẹp context và kết thúc
-    context.user_data.pop('refund_order_id', None)
+    # Chỉnh sửa tin nhắn của bot để báo thành công
+    await context.bot.edit_message_text(
+        chat_id=update.effective_chat.id,
+        message_id=context.user_data.get('refund_message_id'),
+        text="✅ **THÀNH CÔNG!**\n\n"
+             "Đã lưu thông tin hoàn tiền:\n"
+             f"  - Mã Đơn Hàng: `{order_id}`\n"
+             f"  - Số Tiền: `{amount_text}`\n"
+             f"  - Thời Gian: `{formatted_date}`\n\n"
+             "_Sẽ tự động quay về menu chính sau vài giây..._",
+        parse_mode='Markdown'
+    )
+    
+    # Dọn dẹp context
+    context.user_data.clear()
+
+    # Chờ 3 giây để người dùng đọc thông báo
+    await asyncio.sleep(3)
+
+    # Tự động quay về menu chính
+    await show_outer_menu(update, context)
+    
     return ConversationHandler.END
 
 async def cancel_refund(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Hủy bỏ quy trình hoàn tiền."""
-    await update.message.reply_text("Đã hủy bỏ quy trình hoàn tiền.")
-    context.user_data.pop('refund_order_id', None)
-    # Có thể gọi lại menu chính ở đây nếu muốn
-    # from menu import show_outer_menu
-    # await show_outer_menu(update, context)
+    """Hủy quy trình, dọn dẹp và quay về menu chính."""
+    query = update.callback_query
+    await query.answer()
+    
+    context.user_data.clear()
+    logger.info("User cancelled the refund process.")
+    
+    await show_outer_menu(update, context)
+    
     return ConversationHandler.END
 
 def get_refund_conversation_handler() -> ConversationHandler:
@@ -114,7 +137,8 @@ def get_refund_conversation_handler() -> ConversationHandler:
             GET_ORDER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_order_id)],
             GET_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount)],
         },
-        fallbacks=[CommandHandler("huy", cancel_refund)],
-        per_message=False
+        fallbacks=[CallbackQueryHandler(cancel_refund, pattern='^cancel_refund$')],
+        per_message=False,
+        allow_reentry=True
     )
     return conv_handler
