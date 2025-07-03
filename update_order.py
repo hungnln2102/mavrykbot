@@ -233,6 +233,10 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     sheet.update_cell(row_idx, ORDER_COLUMNS["HET_HAN"] + 1, ngay_het_han_moi)
     sheet.update_cell(row_idx, ORDER_COLUMNS["CON_LAI"] + 1, f"=I{row_idx}-TODAY()")
 
+    # ✅ Nếu cột Q (index = 16) đang là TRUE thì đổi về FALSE
+    if len(row) > 16 and row[16].strip().lower() in ["true", "yes", "1", "x"]:
+        sheet.update_cell(row_idx, 17, "FALSE")  # Q là cột thứ 17 (index + 1)
+
     escaped_ma_don = escape_markdown(ma_don, version=2)
     message = f"✅ Đơn hàng `{escaped_ma_don}` đã được gia hạn thành công\!"
     await safe_send(update, message, markup=None)
