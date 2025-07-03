@@ -3,7 +3,8 @@ SHEETS = {
     "ORDER": "Bảng Đơn Hàng",
     "PRICE": "Bảng Giá",
     "SUPPLY": "Thông Tin Nguồn",
-    "RECEIPT": "Biên Lai Thanh Toán"
+    "RECEIPT": "Biên Lai Thanh Toán",
+    "REFUND": "Hoàn Tiền"
 }
 
 ORDER_COLUMNS = {
