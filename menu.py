@@ -16,6 +16,10 @@ async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [
             InlineKeyboardButton("💰 Tạo QR Thanh Toán", callback_data='create_qr'),
             InlineKeyboardButton("💰 Thanh Toán Nguồn", callback_data='payment_source')
+        ],
+        [
+            # Thêm nút "Hoàn Tiền" vào đây
+            InlineKeyboardButton("💸 Hoàn Tiền", callback_data='start_refund')
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)

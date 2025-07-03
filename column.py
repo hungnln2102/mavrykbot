@@ -50,3 +50,10 @@ RECEIPT_COLUMNS = {
     "TEN_NGUON": 1,          # B
     "TONG_TIEN": 2           # C
 }
+
+# ====== HOÀN TIỀN ======
+REFUND_COLUMNS = {
+    "MA_DON_HANG": 0,        # A
+    "NGAY_THANH_TOAN": 1,    # B
+    "SO_TIEN": 2             # C
+}
