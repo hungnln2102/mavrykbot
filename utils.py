@@ -21,6 +21,19 @@ def connect_to_sheet():
     except Exception as e:
         logger.error(f"Lỗi kết nối đến Google Sheet: {str(e)}")
         raise
+def append_to_sheet(sheet_name: str, data: list):
+    """Ghi một dòng dữ liệu mới vào cuối một worksheet được chỉ định."""
+    try:
+        spreadsheet = connect_to_sheet()
+        worksheet = spreadsheet.worksheet(sheet_name)
+        worksheet.append_row(data, value_input_option='USER_ENTERED')
+        logger.info(f"✅ Đã ghi thành công vào sheet '{sheet_name}'")
+    except gspread.exceptions.WorksheetNotFound:
+        logger.error(f"❌ Lỗi: Không tìm thấy worksheet có tên '{sheet_name}'")
+        raise
+    except Exception as e:
+        logger.error(f"❌ Lỗi khi ghi vào sheet '{sheet_name}': {e}")
+        raise
 
 # Tạo ID đơn hàng ngẫu nhiên không trùng lặp
 def generate_unique_id(sheet, loai_khach: str):

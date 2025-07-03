@@ -1,22 +1,21 @@
 # refund.py
 
 import logging
-import asyncio # Thêm thư viện asyncio để tạo độ trễ
+import asyncio
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
-    CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
     filters,
 )
 
-# Import các thành phần cần thiết
+# Import các hàm cần thiết từ các file khác trong dự án của bạn
 from menu import show_outer_menu
-# from g_sheets import append_to_sheet # Bỏ comment nếu bạn dùng
-# from column import SHEETS, REFUND_COLUMNS # Bỏ comment nếu bạn dùng
+from utils import append_to_sheet
+from column import SHEETS
 
 # Cấu hình logging
 logger = logging.getLogger(__name__)
@@ -44,29 +43,28 @@ async def start_refund(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     return GET_ORDER_ID
 
 async def handle_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Lưu mã đơn hàng và yêu cầu số tiền (không có nút)."""
+    """Lưu mã đơn hàng và yêu cầu số tiền."""
     order_id = update.message.text
     context.user_data['refund_order_id'] = order_id
     logger.info(f"Refund - Order ID: {order_id}")
 
     await update.message.delete()
 
-    # Chỉnh sửa tin nhắn của bot để yêu cầu số tiền
-    # **Lưu ý: reply_markup=None để xóa nút bấm đi**
     await context.bot.edit_message_text(
         chat_id=update.effective_chat.id,
         message_id=context.user_data.get('refund_message_id'),
         text=f"✅ Đã ghi nhận mã đơn: `{order_id}`\n\n"
              f"Bây giờ, vui lòng nhập **Số Tiền** cần hoàn.",
-        reply_markup=None, # Xóa bàn phím inline
+        reply_markup=None, # Xóa nút bấm sau khi qua bước này
         parse_mode='Markdown'
     )
     return GET_AMOUNT
 
 async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Lưu số tiền, xử lý, thông báo và tự động quay về menu."""
+    """Lưu số tiền, ghi vào sheet, thông báo và tự động quay về menu."""
     amount_text = update.message.text
     try:
+        # Chuyển đổi số tiền, loại bỏ dấu phẩy hoặc chấm
         amount = float(amount_text.replace(',', '').replace('.', ''))
     except ValueError:
         # Nếu nhập sai, yêu cầu nhập lại và hiện lại nút Hủy
@@ -87,9 +85,19 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     now = datetime.now()
     formatted_date = now.strftime("%d/%m/%Y %H:%M:%S")
 
-    # Ghi dữ liệu vào Google Sheet (ví dụ)
-    # append_to_sheet(SHEETS["REFUND"], [order_id, formatted_date, amount])
-    logger.info(f"Đã ghi vào sheet 'Hoàn Tiền': {[order_id, formatted_date, amount]}")
+    # Ghi dữ liệu vào Google Sheet bằng hàm từ utils.py
+    try:
+        append_to_sheet(SHEETS["REFUND"], [order_id, formatted_date, amount])
+    except Exception as e:
+        logger.error(f"Lỗi khi thực thi append_to_sheet trong refund: {e}")
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=context.user_data.get('refund_message_id'),
+            text=f"❌ Đã xảy ra lỗi khi cố gắng ghi vào Google Sheet. Vui lòng kiểm tra lại cấu hình và file log.",
+            parse_mode='Markdown'
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
 
     await update.message.delete()
 
