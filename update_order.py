@@ -1,6 +1,8 @@
-# update_order.py
+# update_order.py (Phiên bản hoàn thiện cuối cùng)
+
 import logging
 import re
+import asyncio
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -15,440 +17,373 @@ from column import ORDER_COLUMNS
 
 logger = logging.getLogger(__name__)
 
-SELECT_MODE, INPUT_VALUE, SELECT_FIELD, INPUT_NEW_VALUE = range(4)
+# Các trạng thái của Conversation
+SELECT_MODE, INPUT_VALUE, SELECT_ACTION, EDIT_CHOOSE_FIELD, EDIT_INPUT_VALUE = range(5)
+
+# --- CÁC HÀM TIỆN ÍCH ---
+
+def escape_mdv2(text):
+    """Hàm escape các ký tự đặc biệt cho chế độ MarkdownV2 của Telegram."""
+    if not text: return ""
+    special_chars = r'_*[]()~`>#+-=|{}.!'
+    return re.sub(f'([{re.escape(special_chars)}])', r'\\\1', str(text))
 
 def chuan_hoa_gia(text):
+    """Chuẩn hóa và nhân giá trị tiền tệ."""
     try:
-        so = int(text.replace(",", "").strip())
-        if so < 1000:
-            so *= 1000
-        return "{:,} đ".format(so), so
-    except ValueError:
+        so = int(str(text).replace(",", "").strip())
+        if so < 1000: so *= 1000
+        return "{:,}".format(so), so
+    except (ValueError, TypeError):
         return None, None
 
-def get_action_buttons(ma_don):
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🔁 Gia Hạn", callback_data=f"extend_order|{ma_don}"),
-            InlineKeyboardButton("🗑 Xoá Đơn", callback_data=f"delete_order|{ma_don}")
-        ],
-        [
-            InlineKeyboardButton("🚠 Cập nhật đơn", callback_data="start_edit"),
-            InlineKeyboardButton("❌ Kết Thúc", callback_data="end_update_with_cancel")
-        ]
-    ])
+def format_order_message(row_data):
+    """Tạo nội dung tin nhắn chi tiết cho một đơn hàng."""
+    def get_val(col_name):
+        try: return row_data[ORDER_COLUMNS[col_name]].strip()
+        except (IndexError, KeyError): return ""
 
-def format_order_message(row):
-    slot = f"{row[ORDER_COLUMNS['SLOT']]}\n" if row[ORDER_COLUMNS['SLOT']] else ""
-    link_khach = row[ORDER_COLUMNS['LINK_KHACH']] if row[ORDER_COLUMNS['LINK_KHACH']] else None
-    return (
+    # Lấy tất cả giá trị
+    ma_don, san_pham, thong_tin, slot = get_val("ID_DON_HANG"), get_val("SAN_PHAM"), get_val("THONG_TIN_DON"), get_val("SLOT")
+    ngay_dk, so_ngay, het_han, con_lai = get_val("NGAY_DANG_KY"), get_val("SO_NGAY"), get_val("HET_HAN"), get_val("CON_LAI")
+    nguon, gia_nhap, gia_ban, gtcl = get_val("NGUON"), get_val("GIA_NHAP"), get_val("GIA_BAN"), get_val("GIA_TRI_CON_LAI")
+    ten_khach, link_khach, note = get_val("TEN_KHACH"), get_val("LINK_KHACH"), get_val("NOTE")
+
+    # Escape tất cả các giá trị để hiển thị
+    text = (
         f"✅ *CHI TIẾT ĐƠN HÀNG*\n"
-        f"📦 Mã đơn: `{escape_markdown(row[ORDER_COLUMNS['ID_DON_HANG']], version=2)}`\n\n"
-        f"✧•══════•✧  SẢ̃N PHẨM  ✧•══════•✧\n"
-        f"🏷️ *Sản phẩm:* {escape_markdown(row[ORDER_COLUMNS['SAN_PHAM']], version=2)}\n"
-        f"📝 *Thông Tin:* {escape_markdown(row[ORDER_COLUMNS['THONG_TIN_DON']], version=2)}\n"
-        + (f"🧙 *Slot:* {escape_markdown(slot, version=2)}\n" if slot else "")
-        + f"🗓 *Ngày đăng ký:* {escape_markdown(row[ORDER_COLUMNS['NGAY_DANG_KY']], version=2)}\n"
-        f"📆 *Số ngày đăng ký:* {escape_markdown(row[ORDER_COLUMNS['SO_NGAY']], version=2)} ngày\n"
-        f"⏳ *Hết hạn:* {escape_markdown(row[ORDER_COLUMNS['HET_HAN']], version=2)}\n"
-        f"📉 *Còn lại:* {escape_markdown(row[ORDER_COLUMNS['CON_LAI']], version=2)} ngày\n"
-        f"🚚 *Nguồn hàng:* {escape_markdown(row[ORDER_COLUMNS['NGUON']], version=2)}\n"
-        f"📟 *Giá nhập:* {escape_markdown(row[ORDER_COLUMNS['GIA_NHAP']], version=2)}\n"
-        f"💵 *Giá bán:* {escape_markdown(row[ORDER_COLUMNS['GIA_BAN']], version=2)}\n\n"
-        f"💰 *Giá trị còn lại:* {escape_markdown(row[ORDER_COLUMNS['GIA_TRI_CON_LAI']], version=2)}\n\n"
+        f"📦 Mã đơn: `{escape_mdv2(ma_don)}`\n\n"
+        f"✧•══════•✧  SẢN PHẨM  ✧•══════•✧\n"
+        f"🏷️ *Sản phẩm:* {escape_mdv2(san_pham)}\n"
+        f"📝 *Thông Tin:* {escape_mdv2(thong_tin)}\n" +
+        (f"🧙 *Slot:* {escape_mdv2(slot)}\n" if slot else "") +
+        f"🗓️ *Ngày đăng ký:* {escape_mdv2(ngay_dk)}\n"
+        f"📆 *Số ngày đăng ký:* {escape_mdv2(so_ngay)} ngày\n"
+        f"⏳ *Hết hạn:* {escape_mdv2(het_han)}\n"
+        f"📉 *Còn lại:* {escape_mdv2(con_lai)} ngày\n"
+        f"🚚 *Nguồn hàng:* {escape_mdv2(nguon)}\n"
+        f"📟 *Giá nhập:* {escape_mdv2(gia_nhap)}\n"
+        f"💵 *Giá bán:* {escape_mdv2(gia_ban)}\n"
+        f"💰 *Giá trị còn lại:* {escape_mdv2(gtcl)}\n"
+        f"🗒️ *Ghi chú:* {escape_mdv2(note)}\n\n"
         f"✧•══════•✧  KHÁCH HÀNG  ✧•══════•✧\n"
-        f"👤 *Tên:* {escape_markdown(row[ORDER_COLUMNS['TEN_KHACH']], version=2)}\n"
-        + (f"🔗 *Liên hệ:* {escape_markdown(link_khach, version=2)}\n" if link_khach else "")
+        f"👤 *Tên:* {escape_mdv2(ten_khach)}\n" +
+        (f"🔗 *Liên hệ:* {escape_mdv2(link_khach)}" if link_khach else "")
     )
+    return text
 
-async def notify_and_menu(update, context, text: str):
-    escaped_text = escape_markdown(text, version=2)
-    if update.callback_query:
-        await update.callback_query.message.delete()
-        chat_id = update.callback_query.message.chat_id
-    else:
-        await update.message.delete()
-        chat_id = update.message.chat_id
+# --- CÁC HÀM XỬ LÝ CHÍNH CỦA CONVERSATION ---
 
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=escaped_text,
-        parse_mode="MarkdownV2"
-    )
-    await show_main_selector(update, context)
-
-# ❌ KHÔNG escape toàn bộ message ở trong safe_send!
-async def safe_send(update, message, markup):
-    if update.callback_query:
-        await update.callback_query.message.edit_text(
-            message,
-            parse_mode="MarkdownV2",
-            reply_markup=markup
-        )
-    else:
-        await update.message.reply_text(
-            message,
-            parse_mode="MarkdownV2",
-            reply_markup=markup
-        )
-
-async def start_update_order(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: bool = False) -> int:
-    """Bắt đầu quy trình cập nhật đơn hàng, cho chọn hình thức tra cứu."""
-    keyboard = [
-        [
-            InlineKeyboardButton("🔍 Mã Đơn", callback_data="check_ma_don"),
-            InlineKeyboardButton("📝 Thông Tin SP", callback_data="check_thong_tin")
-        ],
-        [InlineKeyboardButton("❌ Kết Thúc", callback_data="end_update_with_cancel")]
-    ]
+async def start_update_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Bắt đầu quy trình, hỏi cách tìm kiếm."""
+    keyboard = [[InlineKeyboardButton("🔍 Mã Đơn", callback_data="mode_id"), InlineKeyboardButton("📝 Thông Tin SP", callback_data="mode_info")], [InlineKeyboardButton("❌ Hủy", callback_data="cancel_update")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    message = "📋 Vui lòng chọn hình thức kiểm tra:"
-
-    if update.callback_query and edit:
-        await update.callback_query.edit_message_text(message, reply_markup=reply_markup)
-    elif update.callback_query:
-        await update.callback_query.message.reply_text(message, reply_markup=reply_markup)
+    message_text = "📋 Vui lòng chọn hình thức tra cứu đơn hàng:"
+    
+    if update.callback_query:
+        await update.callback_query.edit_message_text(message_text, reply_markup=reply_markup)
+        context.user_data['main_message_id'] = update.callback_query.message.message_id
     else:
-        await update.message.reply_text(message, reply_markup=reply_markup)
+        msg = await update.message.reply_text(message_text, reply_markup=reply_markup)
+        context.user_data['main_message_id'] = msg.message_id
     return SELECT_MODE
 
 async def select_check_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Xử lý lựa chọn kiểm tra theo Mã Đơn hoặc Thông Tin Sản Phẩm."""
+    """Yêu cầu người dùng nhập giá trị tìm kiếm."""
     query = update.callback_query
     await query.answer()
-
     context.user_data['check_mode'] = query.data
-    context.user_data['last_message_id'] = query.message.message_id
-    await query.message.edit_reply_markup(reply_markup=None)
-
-    prompt = (
-        "🔢 Vui lòng nhập mã đơn hàng:" if query.data == "check_ma_don"
-        else "📝 Vui lòng nhập *Thông tin sản phẩm* cần tìm:"
-    )
-
-    await query.message.reply_text(
-        prompt,
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("❌ Kết Thúc", callback_data="end_update_with_cancel")]
-        ]),
-        parse_mode="Markdown" if "thong_tin" in query.data else None
-    )
+    prompt = "🔢 Vui lòng nhập *mã đơn hàng*:" if query.data == "mode_id" else "📝 Vui lòng nhập *thông tin sản phẩm* cần tìm:"
+    await query.edit_message_text(prompt, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_update")]]))
     return INPUT_VALUE
 
 async def input_value_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Xử lý giá trị người dùng nhập: Mã Đơn hoặc TTSanPham."""
-    text = update.message.text.strip()
-
-    if context.user_data.get("last_message_id"):
-        try:
-            await context.bot.edit_message_reply_markup(
-                chat_id=update.effective_chat.id,
-                message_id=context.user_data["last_message_id"],
-                reply_markup=None
-            )
-        except:
-            pass
-
+    """Xử lý giá trị tìm kiếm, cache dữ liệu và hiển thị kết quả."""
+    search_term = update.message.text.strip().lower()
+    await update.message.delete()
+    
+    main_message_id = context.user_data.get('main_message_id')
+    chat_id = update.effective_chat.id
     check_mode = context.user_data.get("check_mode")
-    sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
-    data = sheet.get_all_values()
-
-    if check_mode == "check_ma_don":
-        for idx, row in enumerate(data):
-            if row and row[0] == text:
-                context.user_data['selected_row'] = idx + 1
-                context.user_data['ma_don'] = row[0]
-                message = format_order_message(row)
-                await safe_send(update, message, get_action_buttons(row[0]))
-                return SELECT_FIELD
-
-        await update.message.reply_text("❌ Không tìm thấy mã đơn hàng. Quay về menu chính.")
-        return await end_update_success(update, context)
-
-    elif check_mode == "check_thong_tin":
-        matched = [
-            (idx + 1, row) for idx, row in enumerate(data)
-            if len(row) > ORDER_COLUMNS['THONG_TIN_DON'] and text.lower() in row[ORDER_COLUMNS['THONG_TIN_DON']].lower()
-        ]
-
-        if not matched:
-            await update.message.reply_text("❌ Không tìm thấy đơn hàng nào phù hợp.")
-            return await end_update_success(update, context)
-
-        if len(matched) == 1:
-            row_idx, row = matched[0]
-            context.user_data['selected_row'] = row_idx
-            context.user_data['ma_don'] = row[0]
-            message = format_order_message(row)
-            await safe_send(update, message, get_action_buttons(row[0]))
-            return SELECT_FIELD
-
-        context.user_data['matched_orders'] = matched
-        context.user_data['matched_index'] = 0
-        await update.message.reply_text("⏳ Đang tải đơn hàng đầu tiên...")
-        return await show_matched_order(update, context)
-
-async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Gia hạn đơn hàng dựa trên mã đơn và số tháng từ tên sản phẩm."""
-    query = update.callback_query
-    await query.answer()
-    ma_don = query.data.split("|")[1].strip()
-
-    sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
-    data = sheet.get_all_values()
-
-    row_idx = None
-    row = None
-    for i, r in enumerate(data):
-        if r and r[ORDER_COLUMNS["ID_DON_HANG"]].strip() == ma_don:
-            row_idx = i + 1
-            row = r
-            break
-
-    if not row:
-        return await notify_and_menu(update, context, "❌ Không tìm thấy đơn hàng cần gia hạn.")
-
-    product = row[ORDER_COLUMNS["SAN_PHAM"]]
-    match = re.search(r"--(\d+)m", product)
-    if not match:
-        return await notify_and_menu(update, context, "⚠️ Không xác định được thời hạn từ tên sản phẩm.")
-
-    so_thang = int(match.group(1))
-    so_ngay = so_thang * 30
-
-    ngay_cuoi_cu = row[ORDER_COLUMNS["HET_HAN"]].strip()
-    if not ngay_cuoi_cu:
-        return await notify_and_menu(update, context, "⚠️ Không có ngày hết hạn cũ để tính gia hạn.")
-
+    
+    await context.bot.edit_message_text(chat_id=chat_id, message_id=main_message_id, text="🔎 Đang tìm kiếm, vui lòng chờ...", reply_markup=None)
+    
     try:
-        start_dt = datetime.strptime(ngay_cuoi_cu, "%d/%m/%Y") + timedelta(days=1)
-    except ValueError:
-        return await notify_and_menu(update, context, "⚠️ Ngày hết hạn cũ không đúng định dạng.")
+        sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
+        all_data = sheet.get_all_values()
+        context.user_data['order_sheet_cache'] = all_data
+    except Exception as e:
+        logger.error(f"Lỗi khi tải dữ liệu từ sheet: {e}")
+        await context.bot.edit_message_text(chat_id=chat_id, message_id=main_message_id, text="❌ Lỗi kết nối Google Sheet.")
+        return await end_update(update, context)
 
-    ngay_bat_dau_moi = start_dt.strftime("%d/%m/%Y")
-    ngay_het_han_moi = tinh_ngay_het_han(ngay_bat_dau_moi, str(so_ngay))
+    matched = []
+    if len(all_data) > 1:
+        for i, row in enumerate(all_data[1:], start=2):
+            if not any(cell.strip() for cell in row): continue
+            if check_mode == "mode_id":
+                if len(row) > ORDER_COLUMNS["ID_DON_HANG"] and row[ORDER_COLUMNS["ID_DON_HANG"]].strip().lower() == search_term:
+                    matched.append({"data": row, "row_index": i})
+                    break
+            elif check_mode == "mode_info":
+                if len(row) > ORDER_COLUMNS['THONG_TIN_DON'] and search_term in row[ORDER_COLUMNS['THONG_TIN_DON']].lower():
+                    matched.append({"data": row, "row_index": i})
 
-    sheet.update_cell(row_idx, ORDER_COLUMNS["SO_NGAY"] + 1, str(so_ngay))
-    sheet.update_cell(row_idx, ORDER_COLUMNS["NGAY_DANG_KY"] + 1, ngay_bat_dau_moi)
-    sheet.update_cell(row_idx, ORDER_COLUMNS["HET_HAN"] + 1, ngay_het_han_moi)
-    sheet.update_cell(row_idx, ORDER_COLUMNS["CON_LAI"] + 1, f"=I{row_idx}-TODAY()")
+    if not matched:
+        await context.bot.edit_message_text(chat_id=chat_id, message_id=main_message_id, text="❌ Không tìm thấy đơn hàng nào phù hợp.")
+        return await end_update(update, context)
 
-    # ✅ Nếu cột Q (index = 16) đang là TRUE thì đổi về FALSE
-    if len(row) > 16 and row[16].strip().lower() in ["true", "yes", "1", "x"]:
-        sheet.update_cell(row_idx, 17, "FALSE")  # Q là cột thứ 17 (index + 1)
-
-    escaped_ma_don = escape_markdown(ma_don, version=2)
-    message = f"✅ Đơn hàng `{escaped_ma_don}` đã được gia hạn thành công\!"
-    await safe_send(update, message, markup=None)
-    await show_main_selector(update, context)
-    return ConversationHandler.END
-
-async def delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Xoá đơn hàng trong Google Sheet theo Mã Đơn."""
-    query = update.callback_query
-    await query.answer()
-    ma_don = query.data.split("|")[1].strip()
-
-    sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
-    data = sheet.get_all_values()
-
-    for i, row in enumerate(data):
-        if row and row[ORDER_COLUMNS["ID_DON_HANG"]].strip() == ma_don:
-            sheet.delete_rows(i + 1)
-            escaped = escape_markdown(ma_don, version=2)
-            msg = f"🗑 Đơn hàng `{escaped}` đã được xoá thành công\!"
-            await safe_send(update, msg, markup=None)
-            await show_main_selector(update, context)
-            return ConversationHandler.END
-
-    await notify_and_menu(update, context, "❌ Không tìm thấy đơn hàng để xoá.")
-    return ConversationHandler.END
+    context.user_data['matched_orders'] = matched
+    context.user_data['current_match_index'] = 0
+    return await show_matched_order(update, context)
 
 async def show_matched_order(update: Update, context: ContextTypes.DEFAULT_TYPE, direction: str = "stay") -> int:
-    """Hiển thị từng đơn hàng khi có nhiều kết quả khớp với Thông Tin Sản Phẩm."""
+    """Hiển thị một đơn hàng từ danh sách kết quả tìm kiếm."""
+    query = update.callback_query
+    if query: await query.answer()
+
     matched_orders = context.user_data.get("matched_orders", [])
-    index = context.user_data.get("matched_index", 0)
+    index = context.user_data.get("current_match_index", 0)
+    main_message_id = context.user_data.get('main_message_id')
+    chat_id = update.effective_chat.id
 
-    if direction == "next":
-        index += 1
-    elif direction == "prev":
-        index -= 1
-    index = max(0, min(index, len(matched_orders) - 1))
+    if direction == "next": index += 1
+    elif direction == "prev": index -= 1
+    context.user_data["current_match_index"] = index
+    
+    order_info = matched_orders[index]
+    row_data = order_info["data"]
+    ma_don = row_data[ORDER_COLUMNS["ID_DON_HANG"]]
+    
+    message_text = format_order_message(row_data)
+    
+    buttons, nav_row = [], []
+    if len(matched_orders) > 1:
+        if index > 0: nav_row.append(InlineKeyboardButton("⬅️ Back", callback_data="nav_prev"))
+        if index < len(matched_orders) - 1: nav_row.append(InlineKeyboardButton("➡️ Next", callback_data="nav_next"))
+    if nav_row: buttons.append(nav_row)
 
-    context.user_data["matched_index"] = index
-    row_idx, row = matched_orders[index]
-    context.user_data["selected_row"] = row_idx
-    context.user_data["ma_don"] = row[ORDER_COLUMNS["ID_DON_HANG"]]
-
-    message = format_order_message(row)
-    buttons = []
-    nav = []
-    if index > 0:
-        nav.append(InlineKeyboardButton("⬅️ Back", callback_data="prev_matched"))
-    nav.append(InlineKeyboardButton("❌ Kết Thúc", callback_data="end_update_with_cancel"))
-    if index < len(matched_orders) - 1:
-        nav.append(InlineKeyboardButton("➡️ Next", callback_data="next_matched"))
-    if nav:
-        buttons.append(nav)
     buttons.append([
-        InlineKeyboardButton("🔁 Gia Hạn", callback_data=f"extend_order|{row[ORDER_COLUMNS['ID_DON_HANG']]}"),
-        InlineKeyboardButton("🗑 Xoá Đơn", callback_data=f"delete_order|{row[ORDER_COLUMNS['ID_DON_HANG']]}")
+        InlineKeyboardButton("🔁 Gia Hạn", callback_data=f"action_extend|{ma_don}"),
+        InlineKeyboardButton("🗑️ Xóa", callback_data=f"action_delete|{ma_don}"),
+        InlineKeyboardButton("✍️ Sửa", callback_data=f"action_edit|{ma_don}")
     ])
-    buttons.append([
-        InlineKeyboardButton("🛠 Cập nhật đơn", callback_data="start_edit")
-    ])
+    buttons.append([InlineKeyboardButton("❌ Hủy & Quay lại Menu", callback_data="cancel_update")])
+    
+    if len(matched_orders) > 1:
+        message_text += f"\n\n*Kết quả* `({index + 1}/{len(matched_orders)})`"
 
-    await safe_send(update, message, InlineKeyboardMarkup(buttons))
-    return SELECT_FIELD
+    await context.bot.edit_message_text(
+        chat_id=chat_id, message_id=main_message_id,
+        text=message_text, parse_mode="MarkdownV2", reply_markup=InlineKeyboardMarkup(buttons)
+    )
+    return SELECT_ACTION
 
-async def input_new_value_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Xử lý giá trị mới nhập để cập nhật nội dung đơn hàng."""
-    text = update.message.text.strip()
-    sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
-    row_idx = context.user_data.get("selected_row")
-    col_idx = context.user_data.get("edit_column")
+async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Gia hạn đơn hàng - Tối ưu, sử dụng batch update."""
+    query = update.callback_query
+    await query.answer("Đang gia hạn...")
+    ma_don = query.data.split("|")[1].strip()
+    
+    matched_orders = context.user_data.get("matched_orders", [])
+    order_info = next((o for o in matched_orders if o["data"][ORDER_COLUMNS["ID_DON_HANG"]] == ma_don), None)
 
-    if not row_idx or not col_idx:
-        await update.message.reply_text("⚠️ Không xác định được dòng cần cập nhật.")
-        return await end_update_success(update, context)
+    if not order_info:
+        await query.edit_message_text("❌ Lỗi: Không tìm thấy đơn hàng trong cache.")
+        return await end_update(update, context)
 
+    row_data, row_idx = order_info["data"], order_info["row_index"]
+    product = row_data[ORDER_COLUMNS["SAN_PHAM"]]
+    
+    match = re.search(r"--(\d+)m", product)
+    if not match:
+        await query.edit_message_text("⚠️ Không xác định được thời hạn từ sản phẩm.", reply_markup=None)
+        return await end_update(update, context)
+
+    so_thang = int(match.group(1)); so_ngay = 365 if so_thang == 12 else so_thang * 30
+    ngay_cuoi_cu = row_data[ORDER_COLUMNS["HET_HAN"]].strip()
+    
     try:
-        col_idx_int = int(col_idx)
-        if col_idx in [str(ORDER_COLUMNS["GIA_BAN"]), str(ORDER_COLUMNS["GIA_NHAP"])]:
-            gia_text, gia_so = chuan_hoa_gia(text)
-            if not gia_text:
-                await update.message.reply_text("⚠️ Giá không hợp lệ, vui lòng nhập số nguyên.")
-                return ConversationHandler.END
-            sheet.update_cell(row_idx, col_idx_int + 1, gia_text)
-
-        elif col_idx == str(ORDER_COLUMNS["NGAY_DANG_KY"]):
-            # Cập nhật ngày đăng ký và tính lại ngày hết hạn
-            sheet.update_cell(row_idx, ORDER_COLUMNS["NGAY_DANG_KY"] + 1, text)
-            row = sheet.row_values(row_idx)
-            so_ngay = row[ORDER_COLUMNS["SO_NGAY"]] if len(row) > ORDER_COLUMNS["SO_NGAY"] else "0"
-            if so_ngay:
-                try:
-                    ngay_het_han = tinh_ngay_het_han(text, so_ngay)
-                    sheet.update_cell(row_idx, ORDER_COLUMNS["HET_HAN"] + 1, ngay_het_han)
-                except Exception as e:
-                    await update.message.reply_text(f"⚠️ Không thể tính ngày hết hạn: {str(e)}")
-
-        else:
-            sheet.update_cell(row_idx, col_idx_int + 1, text)
-
-        updated = sheet.row_values(row_idx)
-        message = format_order_message(updated)
-        await update.message.reply_text(message, parse_mode="MarkdownV2")
-
+        start_dt = datetime.strptime(ngay_cuoi_cu, "%d/%m/%Y") + timedelta(days=1)
+        ngay_bat_dau_moi = start_dt.strftime("%d/%m/%Y")
+        ngay_het_han_moi = tinh_ngay_het_han(ngay_bat_dau_moi, str(so_ngay))
+    except (ValueError, TypeError):
+        await query.edit_message_text(f"⚠️ Ngày hết hạn cũ '{ngay_cuoi_cu}' không hợp lệ.", reply_markup=None)
+        return await end_update(update, context)
+    
+    new_values_for_row = [ngay_bat_dau_moi, str(so_ngay), ngay_het_han_moi]
+    range_to_update = f'G{row_idx}:I{row_idx}'
+    
+    try:
+        sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
+        sheet.update(range_to_update, [new_values_for_row], value_input_option='USER_ENTERED')
+        
+        row_data[ORDER_COLUMNS["NGAY_DANG_KY"]], row_data[ORDER_COLUMNS["SO_NGAY"]], row_data[ORDER_COLUMNS["HET_HAN"]] = new_values_for_row
+        
+        message = f"✅ Đơn hàng `{escape_mdv2(ma_don)}` đã được gia hạn thành công!"
+        await query.edit_message_text(message, parse_mode="MarkdownV2", reply_markup=None)
     except Exception as e:
-        await update.message.reply_text(f"❌ Cập nhật thất bại: {str(e)}")
+        logger.error(f"Lỗi khi gia hạn đơn {ma_don}: {e}")
+        await query.edit_message_text("❌ Lỗi khi cập nhật Google Sheet.")
+        
+    return await end_update(update, context)
 
-    return await end_update_success(update, context)
+async def delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Xóa đơn hàng và sửa lỗi sai chỉ số trong cache."""
+    query = update.callback_query
+    await query.answer("Đang xóa...")
+    ma_don_to_delete = query.data.split("|")[1].strip()
+    
+    matched_orders = context.user_data.get("matched_orders", [])
+    order_info = next((o for o in matched_orders if o["data"][ORDER_COLUMNS["ID_DON_HANG"]] == ma_don_to_delete), None)
+
+    if not order_info:
+        await query.edit_message_text("❌ Lỗi: Không tìm thấy đơn hàng trong cache.")
+        return await end_update(update, context)
+        
+    row_idx_to_delete = order_info["row_index"]
+    
+    try:
+        sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
+        sheet.delete_rows(row_idx_to_delete)
+        
+        # SỬA LỖI: Cập nhật lại index cho các đơn hàng còn lại trong cache chính
+        all_data_cache = context.user_data.get('order_sheet_cache', [])
+        all_data_cache.pop(row_idx_to_delete - 1)
+        
+        new_matched = []
+        for order in matched_orders:
+            if order['row_index'] == row_idx_to_delete: continue
+            if order['row_index'] > row_idx_to_delete: order['row_index'] -= 1
+            new_matched.append(order)
+        context.user_data['matched_orders'] = new_matched
+        
+        message = f"🗑️ Đơn hàng `{escape_mdv2(ma_don_to_delete)}` đã được xóa thành công!"
+        await query.edit_message_text(message, parse_mode="MarkdownV2", reply_markup=None)
+    except Exception as e:
+        logger.error(f"Lỗi khi xóa đơn {ma_don_to_delete}: {e}")
+        await query.edit_message_text("❌ Lỗi khi cập nhật Google Sheet.")
+        
+    return await end_update(update, context)
 
 async def start_edit_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Hiển thị danh sách các trường để chọn chỉnh sửa đơn hàng."""
-    keyboard = [
-        [
-            InlineKeyboardButton("📌 Sản phẩm", callback_data="edit_col_1"),
-            InlineKeyboardButton("📝 Chi tiết", callback_data="edit_col_2"),
-            InlineKeyboardButton("📆 Ngày Đăng Ký", callback_data="edit_ngay_dang_ky")
-        ],
-        [
-            InlineKeyboardButton("🎯 Slot", callback_data="edit_col_5"),
-            InlineKeyboardButton("📅 Số Ngày Đăng Ký", callback_data="edit_col_7"),
-            InlineKeyboardButton("🚚 Nguồn Cấp Hàng", callback_data="edit_col_10")
-        ],
-        [
-            InlineKeyboardButton("🧾 Giá Nhập", callback_data="edit_col_11"),
-            InlineKeyboardButton("💵 Giá Bán", callback_data="edit_col_12"),
-            InlineKeyboardButton("👤 Tên Khách Hàng", callback_data="edit_col_3")
-        ],
-        [
-            InlineKeyboardButton("🔗 Link Khách", callback_data="edit_col_4"),
-            InlineKeyboardButton("❌ Kết Thúc", callback_data="end_update_with_cancel")
-        ]
-    ]
-    await update.callback_query.answer()
-    await update.callback_query.message.edit_reply_markup(reply_markup=None)
-    await update.callback_query.message.reply_text(
-        "📋 Vui lòng chọn nội dung cần chỉnh sửa:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-    return SELECT_FIELD
-async def edit_ngay_dang_ky_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Bắt đầu nhập ngày đăng ký mới để cập nhật đơn hàng."""
+    """Hiển thị menu các trường có thể chỉnh sửa."""
     query = update.callback_query
     await query.answer()
-    context.user_data['edit_column'] = str(ORDER_COLUMNS['NGAY_DANG_KY'])  # "6"
-    context.user_data["last_message_id"] = query.message.message_id
-
-    await query.message.edit_reply_markup(reply_markup=None)
-    await query.message.reply_text("📅 Vui lòng nhập *Ngày đăng ký mới* (dd/mm/yyyy):", parse_mode="Markdown")
-    return INPUT_NEW_VALUE
+    ma_don = query.data.split("|")[1].strip()
+    context.user_data['edit_ma_don'] = ma_don
+    
+    keyboard = [
+        [InlineKeyboardButton("Sản phẩm", callback_data=f"edit_{ORDER_COLUMNS['SAN_PHAM']}"), InlineKeyboardButton("Thông Tin", callback_data=f"edit_{ORDER_COLUMNS['THONG_TIN_DON']}")],
+        [InlineKeyboardButton("Tên Khách", callback_data=f"edit_{ORDER_COLUMNS['TEN_KHACH']}"), InlineKeyboardButton("Link Khách", callback_data=f"edit_{ORDER_COLUMNS['LINK_KHACH']}")],
+        [InlineKeyboardButton("Giá Bán", callback_data=f"edit_{ORDER_COLUMNS['GIA_BAN']}"), InlineKeyboardButton("Ghi Chú", callback_data=f"edit_{ORDER_COLUMNS['NOTE']}")],
+        [InlineKeyboardButton("Quay lại", callback_data="back_to_order")]
+    ]
+    
+    await query.edit_message_text("✍️ Vui lòng chọn trường cần chỉnh sửa:", reply_markup=InlineKeyboardMarkup(keyboard))
+    return EDIT_CHOOSE_FIELD
 
 async def choose_field_to_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Xử lý khi người dùng chọn cột cần chỉnh sửa."""
+    """Yêu cầu người dùng nhập giá trị mới cho trường đã chọn."""
     query = update.callback_query
     await query.answer()
-    context.user_data['edit_column'] = query.data.split("_")[-1]
-    await query.message.edit_reply_markup(reply_markup=None)
-    msg = await query.message.reply_text("✏️ Vui lòng nhập nội dung cần chỉnh sửa:")
-    context.user_data["last_message_id"] = msg.message_id
-    return INPUT_NEW_VALUE
+    col_idx = int(query.data.split("_")[1])
+    context.user_data['edit_col_idx'] = col_idx
+    col_name = next((key for key, value in ORDER_COLUMNS.items() if value == col_idx), "Không xác định")
+    await query.edit_message_text(f"✏️ Vui lòng nhập giá trị mới cho *{col_name}*:", parse_mode="Markdown")
+    return EDIT_INPUT_VALUE
 
-async def end_update_with_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Xử lý khi người dùng hủy cập nhật đơn hàng."""
+async def input_new_value_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cập nhật giá trị mới vào sheet."""
+    new_value_raw = update.message.text.strip()
+    await update.message.delete()
+    
+    ma_don, col_idx = context.user_data.get('edit_ma_don'), context.user_data.get('edit_col_idx')
+    all_data_cache = context.user_data.get('order_sheet_cache', [])
+    
+    row_idx = -1
+    for i, item in enumerate(all_data_cache[1:]): # Bỏ qua header
+        if len(item) > ORDER_COLUMNS["ID_DON_HANG"] and item[ORDER_COLUMNS["ID_DON_HANG"]] == ma_don:
+            row_idx = i + 2 # +2 vì list từ 0 và sheet từ 1 có header
+            break
+
+    if row_idx == -1: return await end_update(update, context)
+    
+    new_value_to_save = new_value_raw
+    if col_idx in [ORDER_COLUMNS['GIA_BAN'], ORDER_COLUMNS['GIA_NHAP']]:
+        gia_text, _ = chuan_hoa_gia(new_value_raw)
+        if not gia_text:
+            await update.message.reply_text("⚠️ Giá không hợp lệ. Vui lòng thử lại.").delete(delay=3)
+            return EDIT_INPUT_VALUE
+        new_value_to_save = gia_text
+
+    try:
+        sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
+        sheet.update_cell(row_idx, col_idx + 1, new_value_to_save)
+        
+        all_data_cache[row_idx-1][col_idx] = new_value_to_save
+        for order in context.user_data['matched_orders']:
+            if order['data'][ORDER_COLUMNS['ID_DON_HANG']] == ma_don:
+                order['data'][col_idx] = new_value_to_save
+                break
+        
+        await update.callback_query.answer("✅ Cập nhật thành công!", show_alert=True)
+    except Exception as e:
+        logger.error(f"Lỗi khi cập nhật ô: {e}")
+        await update.callback_query.answer("❌ Lỗi khi cập nhật Google Sheet.", show_alert=True)
+    
+    return await show_matched_order(update, context)
+
+async def back_to_order_display(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Quay lại màn hình hiển thị đơn hàng từ menu sửa."""
+    return await show_matched_order(update, context)
+
+async def end_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Kết thúc conversation, dọn dẹp và quay về menu chính."""
+    await asyncio.sleep(1)
+    main_message_id = context.user_data.get('main_message_id')
     try:
         if update.callback_query:
-            await update.callback_query.answer()
-            try:
-                await update.callback_query.message.edit_text("❌ Đã hủy cập nhật đơn.")
-            except Exception as e:
-                logger.warning(f"[❌ Không thể sửa tin nhắn cũ]: {e}")
-        elif update.message:
-            await update.message.reply_text("❌ Đã hủy cập nhật đơn.")
-    finally:
+            await show_main_selector(update, context, edit=True)
+        else:
+             if main_message_id: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=main_message_id)
+             await show_main_selector(update, context, edit=False)
+    except Exception as e:
+        logger.warning(f"Không thể edit về menu chính, gửi mới: {e}")
         await show_main_selector(update, context, edit=False)
-
+    context.user_data.clear()
     return ConversationHandler.END
 
-async def end_update_success(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Quay về menu chính khi cập nhật thành công hoặc kết thúc hợp lệ."""
-    await show_main_selector(update, context)
-    return ConversationHandler.END
+async def cancel_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Hủy toàn bộ quy trình và quay về menu."""
+    query = update.callback_query
+    if query:
+        await query.answer()
+        await query.edit_message_text("❌ Đã hủy thao tác.")
+    return await end_update(update, context)
 
 def get_update_order_conversation_handler():
+    """Tạo và trả về ConversationHandler hoàn chỉnh."""
     return ConversationHandler(
-        entry_points=[
-            CommandHandler("update", start_update_order),
-            CallbackQueryHandler(lambda u, c: start_update_order(u, c, edit=True), pattern="^update$")
-        ],
+        entry_points=[CommandHandler("update", start_update_order), CallbackQueryHandler(start_update_order, pattern="^update$")],
         states={
-            SELECT_MODE: [
-                CallbackQueryHandler(select_check_mode, pattern="^check_ma_don$"),
-                CallbackQueryHandler(select_check_mode, pattern="^check_thong_tin$")
+            SELECT_MODE: [CallbackQueryHandler(select_check_mode, pattern="^mode_.*")],
+            INPUT_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_value_handler)],
+            SELECT_ACTION: [
+                CallbackQueryHandler(lambda u, c: show_matched_order(u, c, "prev"), pattern="^nav_prev$"),
+                CallbackQueryHandler(lambda u, c: show_matched_order(u, c, "next"), pattern="^nav_next$"),
+                CallbackQueryHandler(extend_order, pattern="^action_extend\\|"),
+                CallbackQueryHandler(delete_order, pattern="^action_delete\\|"),
+                CallbackQueryHandler(start_edit_update, pattern="^action_edit\\|"),
             ],
-            INPUT_VALUE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, input_value_handler)
+            EDIT_CHOOSE_FIELD: [
+                CallbackQueryHandler(choose_field_to_edit, pattern="^edit_.*"),
+                CallbackQueryHandler(back_to_order_display, pattern="^back_to_order$"),
             ],
-            SELECT_FIELD: [
-                CallbackQueryHandler(lambda u, c: show_matched_order(u, c, "prev"), pattern="^prev_matched$"),
-                CallbackQueryHandler(lambda u, c: show_matched_order(u, c, "next"), pattern="^next_matched$"),
-                CallbackQueryHandler(start_edit_update, pattern="^start_edit$"),
-                CallbackQueryHandler(choose_field_to_edit, pattern="^edit_col_.*"),
-                CallbackQueryHandler(extend_order, pattern="^extend_order\\|"),
-                CallbackQueryHandler(delete_order, pattern="^delete_order\\|"),
-                CallbackQueryHandler(edit_ngay_dang_ky_handler, pattern="^edit_ngay_dang_ky$")
-
-            ],
-            INPUT_NEW_VALUE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, input_new_value_handler)
-            ]
+            EDIT_INPUT_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_new_value_handler)]
         },
-        fallbacks=[
-            CallbackQueryHandler(end_update_with_cancel, pattern="^end_update_with_cancel$"),
-            CommandHandler("cancel", end_update_with_cancel)
-        ],
+        fallbacks=[CallbackQueryHandler(cancel_update, pattern="^cancel_update$"), CommandHandler("cancel", cancel_update)],
         name="update_order_conversation",
-        persistent=False
+        persistent=False,
+        allow_reentry=True
     )

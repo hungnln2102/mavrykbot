@@ -8,6 +8,10 @@ logger = logging.getLogger(__name__)
 
 # Menu ngoài cùng: Chọn phân hệ
 async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Hiển thị menu chính. Tự động xử lý việc edit tin nhắn văn bản
+    hoặc thay thế tin nhắn media.
+    """
     keyboard = [
         [
             InlineKeyboardButton("👤 Đơn Chưa Thanh Toán", callback_data='unpaid_orders'),
@@ -18,42 +22,52 @@ async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("💰 Thanh Toán Nguồn", callback_data='payment_source')
         ],
         [
-            # Thêm nút "Hoàn Tiền" vào đây
             InlineKeyboardButton("💸 Hoàn Tiền", callback_data='start_refund')
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    message = "🔽 *Chọn phân hệ làm việc:*"
+    message_text = "🔽 *Chọn phân hệ làm việc:*"
 
+    query = update.callback_query
+    
     try:
-        if update.callback_query:
-            logger.info("🔹 show_outer_menu: edit_message_text")
-            await update.callback_query.edit_message_text(
-                text=message,
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
+        if query:
+            # Nếu tin nhắn gốc là tin nhắn văn bản, ta chỉ cần edit nó.
+            if query.message.text:
+                logger.info("🔹 show_outer_menu: Editing text message.")
+                await query.edit_message_text(
+                    text=message_text,
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown'
+                )
+            # Nếu tin nhắn gốc là media (hình ảnh), ta phải xóa và gửi mới.
+            else:
+                logger.info("🔹 show_outer_menu: Replacing media message with text menu.")
+                await query.message.delete()
+                await query.message.chat.send_message(
+                    text=message_text,
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown'
+                )
+        # Nếu người dùng gõ lệnh /start hoặc /menu
         elif update.message:
-            logger.info("🔹 show_outer_menu: reply_text")
+            logger.info("🔹 show_outer_menu: Sending new menu message.")
             await update.message.reply_text(
-                text=message,
+                text=message_text,
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
     except telegram.error.BadRequest as e:
-        logger.warning(f"⚠️ Lỗi khi show_outer_menu: {e}")
-        if "message to edit not found" in str(e).lower() or "no text" in str(e).lower():
-            try:
-                await update.callback_query.message.delete()
-            except:
-                pass
+        # Giữ lại khối except này như một lớp bảo vệ cuối cùng cho các lỗi không lường trước
+        logger.error(f"❌ Lỗi không mong muốn trong show_outer_menu: {e}")
+        try:
             await update.effective_chat.send_message(
-                text=message,
+                text=message_text,
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
-        else:
-            raise e
+        except Exception as final_e:
+            logger.critical(f"💣 Không thể gửi menu cho người dùng: {final_e}")
 
 
 # Menu SHOP: gồm 5 nút chia thành 3 hàng

@@ -1,89 +1,122 @@
+# create_qrcode.py (Đã tối ưu)
+
 from telegram import Update
 from telegram.ext import (
     ContextTypes, ConversationHandler, CallbackQueryHandler, MessageHandler, filters
 )
-from telegram.helpers import escape_markdown
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-import re
+import logging
+import requests
 from menu import show_outer_menu
+
+logger = logging.getLogger(__name__)
+
+# Các trạng thái
 ASK_AMOUNT, ASK_NOTE = range(2)
 
-# 🟩 Bắt đầu quy trình tạo QR
-async def handle_create_qr(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_create_qr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Bắt đầu quy trình, edit tin nhắn hiện tại để hỏi số tiền."""
     query = update.callback_query
     await query.answer()
-    cancel_button = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Huỷ tạo QR", callback_data="cancel_qr")]])
-    await query.message.reply_text(
-        "\U0001F4B5 Vui lòng nhập *số tiền cần thanh toán* (vd: 250 hoặc 250.5):",
+    
+    # CẢI TIỆN UX: Lưu message_id để edit, không tạo tin nhắn mới
+    context.user_data['qr_message_id'] = query.message.message_id
+    
+    keyboard = [[InlineKeyboardButton("❌ Hủy", callback_data="cancel_qr")]]
+    await query.edit_message_text(
+        text="💵 Vui lòng nhập *số tiền cần thanh toán* (ví dụ: 250 hoặc 250.5):",
         parse_mode="Markdown",
-        reply_markup=cancel_button
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return ASK_AMOUNT
 
-# 🟨 Hỏi nội dung chuyển khoản
-async def ask_qr_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    raw = update.message.text.strip().replace(",", ".")
-    if not re.match(r'^\d+(\.\d{1,2})?$', raw):
-        await update.message.reply_text("❌ Số tiền không hợp lệ. Vui lòng nhập lại.")
-        return ASK_AMOUNT
-
+async def ask_qr_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Xử lý số tiền và hỏi nội dung chuyển khoản."""
+    amount_raw = update.message.text
+    # CẢI TIỆN UX: Xóa tin nhắn của người dùng
+    await update.message.delete()
+    
     try:
-        parts = raw.split(".")
-        amount = int(parts[0]) * 1000
-        if len(parts) == 2:
-            decimal_part = parts[1].ljust(2, "0")
-            amount += int(decimal_part[:2]) * 10
+        # TỐI ƯU: Sử dụng logic xử lý số tiền đã được chuẩn hóa
+        sanitized_text = amount_raw.strip().replace(',', '.')
+        numeric_value = float(sanitized_text)
+        amount = int(numeric_value * 1000)
         context.user_data["qr_amount"] = str(amount)
-    except:
-        await update.message.reply_text("❌ Có lỗi khi xử lý số tiền.")
+    except ValueError:
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=context.user_data['qr_message_id'],
+            text="❌ Số tiền không hợp lệ. Vui lòng chỉ nhập số.\n\n"
+                 "💵 Vui lòng nhập lại *số tiền cần thanh toán*:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_qr")]])
+        )
         return ASK_AMOUNT
 
-    cancel_button = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Huỷ tạo QR", callback_data="cancel_qr")]])
-    await update.message.reply_text(
-        "\U0001F4DD Vui lòng nhập *nội dung thanh toán* (vd: Mua Key Adobe):",
+    # CẢI TIỆN UX: Edit tin nhắn hiện tại để hỏi nội dung
+    await context.bot.edit_message_text(
+        chat_id=update.effective_chat.id,
+        message_id=context.user_data['qr_message_id'],
+        text="📝 Vui lòng nhập *nội dung thanh toán* (ví dụ: Mua Key Adobe):",
         parse_mode="Markdown",
-        reply_markup=cancel_button
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_qr")]])
     )
     return ASK_NOTE
 
-# 🟥 Gửi QR code sau khi có đủ thông tin
-async def send_qr_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def send_qr_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Gửi ảnh QR code, sau đó quay về menu chính và kết thúc quy trình."""
     note = update.message.text.strip()
-    context.user_data["qr_note"] = note
-
+    await update.message.delete()
+    
     gia_value = context.user_data.get("qr_amount")
-    ma_don = note
+    
+    note_encoded = requests.utils.quote(note)
 
     qr_url = (
-        f"https://img.vietqr.io/image/VPB-mavpre-compact2.png"
+        f"https://img.vietqr.io/image/VPB-9183400998-compact2.png"
         f"?amount={gia_value}"
-        f"&addInfo={ma_don.replace(' ', '%20')}"
-        f"&accountName=NGO%20LE%20NGOC%20HUNG"
+        f"&addInfo={note_encoded}"
+        f"&accountName=NGO LE NGOC HUNG"
     )
 
     caption = (
-        f"💳Số Tài Khoản: 9183400998\n"
-        f"🏦Ngân Hàng: VP Bank\n"
-        f"👨Chủ Tài Khoản: NGO LE NGOC HUNG\n"
-        f"\U0001F4B0 *Số Tiền Cần Thanh Toán:* {gia_value} đ\n"
-        f"\U0001F4DD *Nội Dung Thanh Toán:* {note}\n"
-        f"============\n"
-        f"Cám ơn quý khách đã tin tưởng dịch vụ *Mavryk Premium*"
+        f"Số tài khoản: `9183400998`\n"
+        f"Ngân hàng: *VP Bank (TMCP Việt Nam Thịnh Vượng)*\n"
+        f"Chủ tài khoản: *NGO LE NGOC HUNG*\n"
+        f"💵 *Số tiền:* `{int(gia_value):,} đ`\n"
+        f"📝 *Nội dung:* `{note}`\n"
+        f"──────────────\n"
+        f"Cảm ơn quý khách đã tin tưởng dịch vụ!"
     )
 
-    await update.message.reply_photo(photo=qr_url, caption=caption, parse_mode="Markdown")
-    await show_outer_menu(update, context)  # ✅ Gọi lại menu ngoài sau khi gửi QR
+    main_message_id = context.user_data.get('qr_message_id')
+    try:
+        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=main_message_id)
+    except Exception as e:
+        logger.warning(f"Không thể xóa tin nhắn tạo QR: {e}")
+
+    await update.effective_chat.send_photo(photo=qr_url, caption=caption, parse_mode="Markdown")
+    
+    # THÊM LẠI: Gọi lại menu chính sau khi gửi QR
+    await show_outer_menu(update, context)
+
+    # Dọn dẹp context và kết thúc
+    context.user_data.clear()
     return ConversationHandler.END
 
-
-# ❌ Huỷ tạo QR code
-async def cancel_qr(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cancel_qr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Hủy quy trình và quay về menu chính."""
     query = update.callback_query
     await query.answer()
-    await query.message.edit_text("❌ Đã huỷ tạo QR thanh toán.")
+    
+    # Dọn dẹp context
+    context.user_data.clear()
+    
+    # Quay về menu chính
+    await show_outer_menu(update, context)
     return ConversationHandler.END
 
-# 🧩 Đăng ký ConversationHandler
+# Đăng ký ConversationHandler (giữ nguyên)
 qr_conversation = ConversationHandler(
     entry_points=[CallbackQueryHandler(handle_create_qr, pattern='^create_qr$')],
     states={
@@ -91,4 +124,5 @@ qr_conversation = ConversationHandler(
         ASK_NOTE: [MessageHandler(filters.TEXT & ~filters.COMMAND, send_qr_image)],
     },
     fallbacks=[CallbackQueryHandler(cancel_qr, pattern='^cancel_qr$')],
+    per_message=False # Thêm vào để tránh cảnh báo
 )

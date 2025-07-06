@@ -1,4 +1,5 @@
 import random
+import re
 import string
 import gspread
 import os
@@ -52,3 +53,11 @@ def generate_unique_id(sheet, loai_khach: str):
         all_ids = sheet.col_values(1)
         if order_id not in all_ids:
             return order_id
+        
+def escape_mdv2(text: str) -> str:
+    """Hàm escape các ký tự đặc biệt cho chế độ MarkdownV2 của Telegram."""
+    if not isinstance(text, str):
+        text = str(text)
+    # Các ký tự đặc biệt cần escape trong MarkdownV2
+    escape_chars = r'_*[]()~`>#+-=|{}.!'
+    return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)

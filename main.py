@@ -1,4 +1,3 @@
-
 from telegram import Update
 import os
 import logging
@@ -8,11 +7,11 @@ from telegram.ext import (
     AIORateLimiter
 )
 
-#Menu and Function Menu
+# Menu and Function Menu
 from menu import show_outer_menu, show_main_selector
 from create_qrcode import qr_conversation
-from add_order import add_order_conv, start_add, cancel_add
-from delete_order import get_delete_order_conversation_handler, get_delete_callbacks, start_delete_order
+from add_order import get_add_order_conversation_handler, start_add, cancel_add
+from delete_order import get_delete_order_conversation_handler
 from update_order import get_update_order_conversation_handler
 from refund import get_refund_conversation_handler
 from View_order_unpaid import (
@@ -22,7 +21,13 @@ from View_order_unpaid import (
     mark_paid_unpaid_order,
     exit_unpaid
 )
-from view_due_orders import view_expired_orders, show_expired_order, extend_order, delete_order_from_expired
+from view_due_orders import (
+    view_expired_orders,
+    show_expired_order,
+    extend_order,
+    delete_order_from_expired,
+    back_to_menu_from_expired
+)
 from Payment_Supply import (
     handle_exit_to_main,
     handle_source_paid,
@@ -67,6 +72,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @user_only_filter
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()
 
     if query.data == 'menu_shop':
         await show_main_selector(update, context, edit=True)
@@ -74,20 +80,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await view_unpaid_orders(update, context)
     elif query.data == 'expired':
         await view_expired_orders(update, context)
-    elif query.data == 'next_expired':
-        await show_expired_order(update, context, direction="next")
-    elif query.data == 'prev_expired':
-        await show_expired_order(update, context, direction="prev")
     elif query.data == 'back_to_menu':
         await show_outer_menu(update, context)
     elif query.data == 'delete':
-        await query.answer()  # 👉 Phản hồi để tránh lỗi
-        return  # Không xử lý gì thêm, ConversationHandler sẽ tự lo
-
-    try:
-        await query.answer()
-    except Exception as e:
-        logger.warning(f"Lỗi khi answer callback: {e}")
+        return # ConversationHandler sẽ tự xử lý
 
 async def handle_webhook(request):
     data = await request.json()
@@ -104,34 +100,51 @@ async def healthcheck(request):
 
 async def main():
     application = Application.builder().token(BOT_TOKEN).rate_limiter(AIORateLimiter()).build()
+    
+    # === 1. HANDLER LỆNH CƠ BẢN ===
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", start))
+    
+    # === 2. CONVERSATION HANDLER (CÁC QUY TRÌNH PHỨC TẠP) ===
     application.add_handler(get_refund_conversation_handler())
-    application.add_handler(add_order_conv)
+    application.add_handler(get_add_order_conversation_handler())
     application.add_handler(get_update_order_conversation_handler())
     application.add_handler(get_delete_order_conversation_handler())
-    application.add_handler(CallbackQueryHandler(cancel_add, pattern="^cancel_add$"))
+    application.add_handler(qr_conversation)
+
+    # === 3. CALLBACK QUERY HANDLERS (XỬ LÝ NÚT BẤM) ===
+
+    # --- Nhóm điều hướng chính & menu ---
+    application.add_handler(CallbackQueryHandler(button_callback, pattern=r'^(menu_shop|expired|back_to_menu|delete)$'))
+
+    # --- Nhóm tính năng "Thêm Đơn Hàng" ---
     application.add_handler(CallbackQueryHandler(start_add, pattern="^add$"))
-    application.add_handler(CallbackQueryHandler(button_callback, pattern=r'^(menu_shop|menu_customer|expired|next_expired|prev_expired|back_to_menu|delete)$'))
+    application.add_handler(CallbackQueryHandler(cancel_add, pattern="^cancel_add$"))
+    
+    # --- Nhóm tính năng "Đơn Đến Hạn" ---
+    application.add_handler(CallbackQueryHandler(lambda u, c: show_expired_order(u, c, "next"), pattern=r"^next_expired$"))
+    application.add_handler(CallbackQueryHandler(lambda u, c: show_expired_order(u, c, "prev"), pattern=r"^prev_expired$"))
     application.add_handler(CallbackQueryHandler(extend_order, pattern=r"^extend_order\|"))
-    application.add_handler(CallbackQueryHandler(delete_order_from_expired, pattern=r"^delete_order\|"))
-    application.add_handler(CallbackQueryHandler(show_expired_order, pattern=r"^next_expired$"))
-    application.add_handler(CallbackQueryHandler(show_expired_order, pattern=r"^prev_expired$"))
+    application.add_handler(CallbackQueryHandler(delete_order_from_expired, pattern=r"^delete_order_from_expired\|"))
+    application.add_handler(CallbackQueryHandler(back_to_menu_from_expired, pattern=r"^back_to_menu_expired$"))
+    
+    # --- Nhóm tính năng "Thanh Toán Nguồn" ---
     application.add_handler(CallbackQueryHandler(thanh_toan_nguon_handler, pattern='^payment_source$'))
     application.add_handler(CallbackQueryHandler(handle_exit_to_main, pattern="^exit_to_main$"))
     application.add_handler(CallbackQueryHandler(handle_source_paid, pattern="^source_paid\\|"))
     application.add_handler(CallbackQueryHandler(handle_source_navigation, pattern="^source_(next|prev)\\|"))
+    
+    # --- Nhóm tính năng "Đơn Chưa Thanh Toán" ---
     application.add_handler(CallbackQueryHandler(view_unpaid_orders, pattern="^unpaid_orders$"))
     application.add_handler(CallbackQueryHandler(lambda u, c: show_unpaid_order(u, c, "next"), pattern="^next_unpaid$"))
     application.add_handler(CallbackQueryHandler(lambda u, c: show_unpaid_order(u, c, "prev"), pattern="^prev_unpaid$"))
     application.add_handler(CallbackQueryHandler(delete_unpaid_order, pattern="^delete_unpaid\\|"))
     application.add_handler(CallbackQueryHandler(mark_paid_unpaid_order, pattern="^paid_unpaid\\|"))
     application.add_handler(CallbackQueryHandler(exit_unpaid, pattern="^exit_unpaid$"))
-    application.add_handler(qr_conversation)
 
-    for handler in get_delete_callbacks():
-        application.add_handler(handler)
-
+    # --- Nhóm tính năng "Đơn Chưa Thanh Toán" ---
+    application.add_handler(get_delete_order_conversation_handler())
+    # Khởi chạy bot và webhook
     await application.initialize()
     await application.start()
     bot = application.bot
@@ -150,9 +163,6 @@ async def main():
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    if __name__ == "__main__":
-        import asyncio
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(main())
-
-
+    import asyncio
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
