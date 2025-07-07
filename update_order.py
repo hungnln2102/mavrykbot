@@ -384,11 +384,17 @@ async def cancel_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 def get_update_order_conversation_handler():
     """Tạo và trả về ConversationHandler hoàn chỉnh."""
     return ConversationHandler(
-        entry_points=[CommandHandler("update", start_update_order), CallbackQueryHandler(start_update_order, pattern="^update$")],
+        entry_points=[
+            CommandHandler("update", start_update_order),
+            CallbackQueryHandler(start_update_order, pattern="^update$")
+        ],
         states={
             SELECT_MODE: [CallbackQueryHandler(select_check_mode, pattern="^mode_.*")],
             INPUT_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_value_handler)],
             SELECT_ACTION: [
+                # SỬA LỖI: Thêm handler cho nút Hủy vào đây
+                CallbackQueryHandler(cancel_update, pattern="^cancel_update$"),
+                
                 CallbackQueryHandler(lambda u, c: show_matched_order(u, c, "prev"), pattern="^nav_prev$"),
                 CallbackQueryHandler(lambda u, c: show_matched_order(u, c, "next"), pattern="^nav_next$"),
                 CallbackQueryHandler(extend_order, pattern="^action_extend\\|"),
@@ -401,7 +407,10 @@ def get_update_order_conversation_handler():
             ],
             EDIT_INPUT_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_new_value_handler)]
         },
-        fallbacks=[CallbackQueryHandler(cancel_update, pattern="^cancel_update$"), CommandHandler("cancel", cancel_update)],
+        fallbacks=[
+            CallbackQueryHandler(cancel_update, pattern="^cancel_update$"),
+            CommandHandler("cancel", cancel_update)
+        ],
         name="update_order_conversation",
         persistent=False,
         allow_reentry=True
