@@ -291,10 +291,21 @@ async def choose_field_to_edit(update: Update, context: ContextTypes.DEFAULT_TYP
     """Yêu cầu người dùng nhập giá trị mới cho trường đã chọn."""
     query = update.callback_query
     await query.answer()
+    
     col_idx = int(query.data.split("_")[1])
     context.user_data['edit_col_idx'] = col_idx
+    
     col_name = next((key for key, value in ORDER_COLUMNS.items() if value == col_idx), "Không xác định")
-    await query.edit_message_text(f"✏️ Vui lòng nhập giá trị mới cho *{col_name}*:", parse_mode="Markdown")
+    
+    # SỬA LỖI: Thêm nút "Hủy" vào đây
+    keyboard = [[InlineKeyboardButton("❌ Hủy", callback_data="cancel_update")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        f"✏️ Vui lòng nhập giá trị mới cho *{col_name}*:", 
+        parse_mode="Markdown",
+        reply_markup=reply_markup
+    )
     return EDIT_INPUT_VALUE
 
 async def input_new_value_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
