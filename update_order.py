@@ -137,8 +137,8 @@ async def input_value_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data['current_match_index'] = 0
     return await show_matched_order(update, context)
 
-async def show_matched_order(update: Update, context: ContextTypes.DEFAULT_TYPE, direction: str = "stay") -> int:
-    """Hiển thị một đơn hàng từ danh sách kết quả tìm kiếm."""
+async def show_matched_order(update: Update, context: ContextTypes.DEFAULT_TYPE, direction: str = "stay", success_notice: str = None) -> int:
+    """Hiển thị một đơn hàng, có thể kèm theo một thông báo thành công ngắn."""
     query = update.callback_query
     if query: await query.answer()
 
@@ -157,6 +157,10 @@ async def show_matched_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
     
     message_text = format_order_message(row_data)
     
+    # Thêm thông báo thành công nếu có
+    if success_notice:
+        message_text = f"_{escape_mdv2(success_notice)}_\n\n{message_text}"
+
     buttons, nav_row = [], []
     if len(matched_orders) > 1:
         if index > 0: nav_row.append(InlineKeyboardButton("⬅️ Back", callback_data="nav_prev"))
@@ -287,33 +291,51 @@ async def choose_field_to_edit(update: Update, context: ContextTypes.DEFAULT_TYP
     """Yêu cầu người dùng nhập giá trị mới cho trường đã chọn."""
     query = update.callback_query
     await query.answer()
+    
     col_idx = int(query.data.split("_")[1])
     context.user_data['edit_col_idx'] = col_idx
+    
     col_name = next((key for key, value in ORDER_COLUMNS.items() if value == col_idx), "Không xác định")
-    await query.edit_message_text(f"✏️ Vui lòng nhập giá trị mới cho *{col_name}*:", parse_mode="Markdown")
+    
+    # SỬA LỖI: Thêm nút "Hủy" vào đây
+    keyboard = [[InlineKeyboardButton("❌ Hủy", callback_data="cancel_update")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        f"✏️ Vui lòng nhập giá trị mới cho *{col_name}*:", 
+        parse_mode="Markdown",
+        reply_markup=reply_markup
+    )
     return EDIT_INPUT_VALUE
 
 async def input_new_value_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cập nhật giá trị mới vào sheet."""
+    """Cập nhật giá trị mới vào sheet và quay lại hiển thị đơn hàng."""
     new_value_raw = update.message.text.strip()
     await update.message.delete()
     
-    ma_don, col_idx = context.user_data.get('edit_ma_don'), context.user_data.get('edit_col_idx')
+    ma_don = context.user_data.get('edit_ma_don')
+    col_idx = context.user_data.get('edit_col_idx')
     all_data_cache = context.user_data.get('order_sheet_cache', [])
     
     row_idx = -1
-    for i, item in enumerate(all_data_cache[1:]): # Bỏ qua header
+    original_row_data = None
+    # Tìm lại thông tin đơn hàng từ cache chính
+    for i, item in enumerate(all_data_cache):
         if len(item) > ORDER_COLUMNS["ID_DON_HANG"] and item[ORDER_COLUMNS["ID_DON_HANG"]] == ma_don:
-            row_idx = i + 2 # +2 vì list từ 0 và sheet từ 1 có header
+            row_idx = i + 1
+            original_row_data = item
             break
 
-    if row_idx == -1: return await end_update(update, context)
-    
+    if not original_row_data:
+        await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=context.user_data.get('main_message_id'), text=escape_mdv2("❌ Lỗi: Không tìm thấy đơn hàng trong cache."))
+        return await end_update(update, context)
+
     new_value_to_save = new_value_raw
+    # Xử lý giá tiền đặc biệt
     if col_idx in [ORDER_COLUMNS['GIA_BAN'], ORDER_COLUMNS['GIA_NHAP']]:
         gia_text, _ = chuan_hoa_gia(new_value_raw)
         if not gia_text:
-            await update.message.reply_text("⚠️ Giá không hợp lệ. Vui lòng thử lại.").delete(delay=3)
+            await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=context.user_data.get('main_message_id'), text="⚠️ Giá không hợp lệ. Vui lòng nhập lại:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_update")]]))
             return EDIT_INPUT_VALUE
         new_value_to_save = gia_text
 
@@ -321,18 +343,15 @@ async def input_new_value_handler(update: Update, context: ContextTypes.DEFAULT_
         sheet = connect_to_sheet().worksheet("Bảng Đơn Hàng")
         sheet.update_cell(row_idx, col_idx + 1, new_value_to_save)
         
-        all_data_cache[row_idx-1][col_idx] = new_value_to_save
-        for order in context.user_data['matched_orders']:
-            if order['data'][ORDER_COLUMNS['ID_DON_HANG']] == ma_don:
-                order['data'][col_idx] = new_value_to_save
-                break
+        # Cập nhật cache để thay đổi được phản ánh ngay lập tức
+        original_row_data[col_idx] = new_value_to_save
         
-        await update.callback_query.answer("✅ Cập nhật thành công!", show_alert=True)
     except Exception as e:
         logger.error(f"Lỗi khi cập nhật ô: {e}")
-        await update.callback_query.answer("❌ Lỗi khi cập nhật Google Sheet.", show_alert=True)
+        return await show_matched_order(update, context, success_notice="❌ Lỗi khi cập nhật Google Sheet.")
     
-    return await show_matched_order(update, context)
+    # Quay về hiển thị đơn hàng kèm thông báo thành công
+    return await show_matched_order(update, context, success_notice="✅ Cập nhật thành công!")
 
 async def back_to_order_display(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Quay lại màn hình hiển thị đơn hàng từ menu sửa."""
@@ -365,11 +384,17 @@ async def cancel_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 def get_update_order_conversation_handler():
     """Tạo và trả về ConversationHandler hoàn chỉnh."""
     return ConversationHandler(
-        entry_points=[CommandHandler("update", start_update_order), CallbackQueryHandler(start_update_order, pattern="^update$")],
+        entry_points=[
+            CommandHandler("update", start_update_order),
+            CallbackQueryHandler(start_update_order, pattern="^update$")
+        ],
         states={
             SELECT_MODE: [CallbackQueryHandler(select_check_mode, pattern="^mode_.*")],
             INPUT_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_value_handler)],
             SELECT_ACTION: [
+                # SỬA LỖI: Thêm handler cho nút Hủy vào đây
+                CallbackQueryHandler(cancel_update, pattern="^cancel_update$"),
+                
                 CallbackQueryHandler(lambda u, c: show_matched_order(u, c, "prev"), pattern="^nav_prev$"),
                 CallbackQueryHandler(lambda u, c: show_matched_order(u, c, "next"), pattern="^nav_next$"),
                 CallbackQueryHandler(extend_order, pattern="^action_extend\\|"),
@@ -382,7 +407,10 @@ def get_update_order_conversation_handler():
             ],
             EDIT_INPUT_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_new_value_handler)]
         },
-        fallbacks=[CallbackQueryHandler(cancel_update, pattern="^cancel_update$"), CommandHandler("cancel", cancel_update)],
+        fallbacks=[
+            CallbackQueryHandler(cancel_update, pattern="^cancel_update$"),
+            CommandHandler("cancel", cancel_update)
+        ],
         name="update_order_conversation",
         persistent=False,
         allow_reentry=True
