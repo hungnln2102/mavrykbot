@@ -9,7 +9,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Token của bot Telegram
-BOT_TOKEN = "7469424189:AAG8CACf5m6PZQ4c0WUk_xPj_A6H-n0sDoI"
+BOT_TOKEN = "7469424189:AAH0xQDx0B2avI6sgVuegghd_EE7I-DZdzA"
 
 # Tên của Google Sheet
 SHEET_NAME = "Bảng Nhập Đơn"
