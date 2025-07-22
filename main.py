@@ -53,6 +53,10 @@ BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("⚠️ TELEGRAM_TOKEN chưa được thiết lập!")
 
+# === THÊM MỚI ===: Lấy URL Webhook từ biến môi trường
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+
+
 def user_only_filter(func):
     async def wrapper(update, context):
         user_id = update.effective_user.id
@@ -144,25 +148,42 @@ async def main():
 
     # --- Nhóm tính năng "Đơn Chưa Thanh Toán" ---
     application.add_handler(get_delete_order_conversation_handler())
+
     # Khởi chạy bot và webhook
     await application.initialize()
     await application.start()
+
+    # === THÊM MỚI ===: Tự động đăng ký Webhook khi khởi động
+    if WEBHOOK_URL:
+        logger.info(f"Bắt đầu thiết lập webhook tới: {WEBHOOK_URL}")
+        await application.bot.set_webhook(url=WEBHOOK_URL)
+        
+        # Kiểm tra lại để chắc chắn webhook đã được đặt đúng
+        webhook_info = await application.bot.get_webhook_info()
+        if webhook_info.url == WEBHOOK_URL:
+            logger.info("✅ Webhook đã được thiết lập thành công!")
+        else:
+            logger.error(f"❌ Thiết lập webhook THẤT BẠI. Telegram trả về URL: {webhook_info.url}")
+    else:
+        logger.warning("⚠️ Biến môi trường WEBHOOK_URL chưa được đặt, bot sẽ không hoạt động qua webhook.")
+
     bot = application.bot
 
+    # Thiết lập web server aiohttp
     app = web.Application()
     app.add_routes(sepay_routes)
     app["application"] = application
     app["bot"] = bot
     app.router.add_get("/", healthcheck)
-    app.router.add_post("/webhook", handle_webhook)
+    app.router.add_post("/webhook", handle_webhook) # Telegram sẽ gọi vào đây
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, port=8080)
+    site = web.TCPSite(runner, '0.0.0.0', port=8080) # Nghe trên port 8080
     await site.start()
-    logger.info("✅ Bot đã khởi động bằng webhook.")
+    
+    logger.info("✅ Bot đã khởi động và sẵn sàng nhận yêu cầu.")
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    import asyncio
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_event_loop_policy().get_event_loop()
     loop.run_until_complete(main())
