@@ -11,7 +11,6 @@ from telegram.ext import (
 from menu import show_outer_menu, show_main_selector
 from create_qrcode import qr_conversation
 from add_order import get_add_order_conversation_handler, start_add, cancel_add
-from delete_order import get_delete_order_conversation_handler
 from update_order import get_update_order_conversation_handler
 from refund import get_refund_conversation_handler
 from View_order_unpaid import (
@@ -113,7 +112,6 @@ async def main():
     application.add_handler(get_refund_conversation_handler())
     application.add_handler(get_add_order_conversation_handler())
     application.add_handler(get_update_order_conversation_handler())
-    application.add_handler(get_delete_order_conversation_handler())
     application.add_handler(qr_conversation)
 
     # === 3. CALLBACK QUERY HANDLERS (XỬ LÝ NÚT BẤM) ===
@@ -145,9 +143,6 @@ async def main():
     application.add_handler(CallbackQueryHandler(delete_unpaid_order, pattern="^delete_unpaid\\|"))
     application.add_handler(CallbackQueryHandler(mark_paid_unpaid_order, pattern="^paid_unpaid\\|"))
     application.add_handler(CallbackQueryHandler(exit_unpaid, pattern="^exit_unpaid$"))
-
-    # --- Nhóm tính năng "Đơn Chưa Thanh Toán" ---
-    application.add_handler(get_delete_order_conversation_handler())
 
     # Khởi chạy bot và webhook
     await application.initialize()

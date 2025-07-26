@@ -14,15 +14,12 @@ async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     keyboard = [
         [
-            InlineKeyboardButton("👤 Đơn Chưa Thanh Toán", callback_data='unpaid_orders'),
-            InlineKeyboardButton("🏬 Shop", callback_data='menu_shop')
+            InlineKeyboardButton("📝 Thêm Đơn", callback_data='add'),
+            InlineKeyboardButton("🔄 Xem Đơn", callback_data='update'),
+            InlineKeyboardButton("⏰ Đơn Đến Hạn", callback_data='expired')
         ],
         [
-            InlineKeyboardButton("💰 Tạo QR Thanh Toán", callback_data='create_qr'),
-            InlineKeyboardButton("💰 Thanh Toán Nguồn", callback_data='payment_source')
-        ],
-        [
-            InlineKeyboardButton("💸 Hoàn Tiền", callback_data='start_refund')
+            InlineKeyboardButton("🔚 Quay Lại Menu Chính", callback_data='back_to_menu')
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
