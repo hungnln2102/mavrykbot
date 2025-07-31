@@ -185,15 +185,11 @@ async def show_matched_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
 async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Gia hạn đơn hàng một cách hoàn chỉnh:
-    - Sử dụng biến cấu hình để đọc/ghi đúng cột.
-    - Cập nhật ngày tháng.
-    - Tìm kiếm giá mới; nếu không tìm thấy, sẽ giữ lại giá cũ.
-    - Cập nhật tất cả thông tin lên Google Sheet trong một lần.
-    - Hiển thị thông báo và quay về menu chính.
+    Gia hạn đơn hàng, chỉ hiển thị popup thông báo và quay về menu.
     """
     query = update.callback_query
-    await query.answer("Đang xử lý gia hạn...")
+    # Trả lời ngay lập tức để người dùng không thấy icon loading mãi
+    await query.answer() 
     ma_don = query.data.split("|")[1].strip()
 
     # 1. Lấy thông tin đơn hàng từ Cache
@@ -201,22 +197,22 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     order_info = next((o for o in matched_orders if o["data"][ORDER_COLUMNS["ID_DON_HANG"]] == ma_don), None)
 
     if not order_info:
-        await query.edit_message_text("❌ Lỗi: Không tìm thấy đơn hàng trong cache.")
+        await query.answer("Lỗi: Không tìm thấy đơn hàng trong cache!", show_alert=True)
         return await end_update(update, context)
 
     row_data, row_idx = order_info["data"], order_info["row_index"]
     
-    # 2. Trích xuất thông tin cần thiết (bao gồm cả giá cũ làm phương án dự phòng)
+    # 2. Trích xuất thông tin cần thiết
     san_pham = row_data[ORDER_COLUMNS["SAN_PHAM"]].strip()
     nguon_hang = row_data[ORDER_COLUMNS["NGUON"]].strip()
     ngay_cuoi_cu = row_data[ORDER_COLUMNS["HET_HAN"]].strip()
     gia_nhap_cu = row_data[ORDER_COLUMNS["GIA_NHAP"]].strip()
     gia_ban_cu = row_data[ORDER_COLUMNS["GIA_BAN"]].strip()
 
-    # 3. Tính toán ngày đăng ký và hết hạn mới
+    # 3. Tính toán ngày tháng mới
     match_thoi_han = re.search(r"--(\d+)m", san_pham)
     if not match_thoi_han:
-        await query.edit_message_text("⚠️ Lỗi: Không thể xác định thời hạn từ tên sản phẩm (ví dụ: --12m).")
+        await query.answer("Lỗi: Không thể xác định thời hạn từ tên sản phẩm.", show_alert=True)
         return await end_update(update, context)
 
     so_thang = int(match_thoi_han.group(1))
@@ -227,7 +223,7 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         ngay_bat_dau_moi = start_dt.strftime("%d/%m/%Y")
         ngay_het_han_moi = tinh_ngay_het_han(ngay_bat_dau_moi, str(so_ngay))
     except (ValueError, TypeError):
-        await query.edit_message_text(f"⚠️ Lỗi: Ngày hết hạn cũ '{escape_mdv2(ngay_cuoi_cu)}' không hợp lệ.", parse_mode="MarkdownV2")
+        await query.answer(f"Lỗi: Ngày hết hạn cũ '{ngay_cuoi_cu}' không hợp lệ.", show_alert=True)
         return await end_update(update, context)
 
     # 4. Tìm kiếm giá mới từ 'Bảng Giá'
@@ -237,14 +233,11 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         bang_gia_data = sheet_bang_gia.get_all_values()
         
         for row_gia in bang_gia_data[1:]:
-            # Đọc dữ liệu an toàn, sử dụng biến từ PRICE_COLUMNS
             ten_sp_bang_gia = row_gia[PRICE_COLUMNS["TEN_SAN_PHAM"]].strip() if len(row_gia) > PRICE_COLUMNS["TEN_SAN_PHAM"] else ""
             nguon_bang_gia = row_gia[PRICE_COLUMNS["NGUON"]].strip() if len(row_gia) > PRICE_COLUMNS["NGUON"] else ""
             
-            # So sánh cả Tên Sản Phẩm và Nguồn Hàng
             if ten_sp_bang_gia.lower() == san_pham.lower() and nguon_bang_gia.lower() == nguon_hang.lower():
                 gia_nhap_moi_raw = row_gia[PRICE_COLUMNS["GIA_NHAP"]] if len(row_gia) > PRICE_COLUMNS["GIA_NHAP"] else "0"
-                # Giả định dùng giá CTV. Đổi thành "GIA_BAN_LE" nếu muốn dùng giá lẻ.
                 gia_ban_moi_raw = row_gia[PRICE_COLUMNS["GIA_BAN_CTV"]] if len(row_gia) > PRICE_COLUMNS["GIA_BAN_CTV"] else "0"
                 
                 gia_nhap_moi, _ = chuan_hoa_gia(gia_nhap_moi_raw)
@@ -253,12 +246,12 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     except Exception as e:
         logging.warning(f"Không thể truy cập '{SHEETS['PRICE']}': {e}. Sẽ sử dụng giá cũ.")
 
-    # 5. Quyết định giá trị cuối cùng (giá mới hoặc giá cũ)
+    # 5. Quyết định giá trị cuối cùng
     if gia_nhap_moi is None or gia_ban_moi is None:
         gia_nhap_moi = gia_nhap_cu
         gia_ban_moi = gia_ban_cu
         
-    # 6. Chuẩn bị và thực hiện cập nhật hàng loạt (Batch Update)
+    # 6. Chuẩn bị và thực hiện cập nhật
     updates = [
         {'range': f'{chr(ord("A") + ORDER_COLUMNS["NGAY_DANG_KY"])}{row_idx}', 'values': [[ngay_bat_dau_moi]]},
         {'range': f'{chr(ord("A") + ORDER_COLUMNS["SO_NGAY"])}{row_idx}', 'values': [[str(so_ngay)]]},
@@ -271,13 +264,16 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         sheet_don_hang = connect_to_sheet().worksheet(SHEETS["ORDER"])
         sheet_don_hang.batch_update(updates, value_input_option='USER_ENTERED')
         
-        message = f"✅ Đơn hàng `{escape_mdv2(ma_don)}` đã được gia hạn và cập nhật thành công!"
-        await query.edit_message_text(message, parse_mode="MarkdownV2")
+        # <<< THAY ĐỔI CHÍNH Ở ĐÂY >>>
+        # Thay vì edit_message_text, chúng ta dùng answer để hiện popup
+        await query.answer("✅ Gia hạn và cập nhật giá thành công!", show_alert=True)
+        
     except Exception as e:
         logging.error(f"Lỗi khi gia hạn đơn {ma_don}: {e}")
-        await query.edit_message_text("❌ Lỗi: Không thể cập nhật dữ liệu lên Google Sheet.")
+        # Thông báo lỗi cũng bằng popup
+        await query.answer("❌ Lỗi: Không thể cập nhật dữ liệu lên Google Sheet.", show_alert=True)
     
-    # 7. Kết thúc và quay về menu
+    # 7. Kết thúc và quay về menu (hành động này luôn được thực hiện)
     return await end_update(update, context)
 
 async def delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
