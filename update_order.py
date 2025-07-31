@@ -13,7 +13,7 @@ from telegram.helpers import escape_markdown
 from utils import connect_to_sheet
 from menu import show_main_selector
 from add_order import tinh_ngay_het_han
-from column import ORDER_COLUMNS
+from column import SHEETS, ORDER_COLUMNS, PRICE_COLUMNS
 
 logger = logging.getLogger(__name__)
 
