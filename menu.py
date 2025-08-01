@@ -77,10 +77,10 @@ async def show_main_selector(update: Update, context: ContextTypes.DEFAULT_TYPE,
     keyboard = [
         [
             InlineKeyboardButton("📝 Thêm Đơn", callback_data='add'),
-            InlineKeyboardButton("🔄 Xem Đơn", callback_data='update'),
-            InlineKeyboardButton("⏰ Đơn Đến Hạn", callback_data='expired')
+            InlineKeyboardButton("🔄 Xem Đơn", callback_data='update')
         ],
         [
+            InlineKeyboardButton("⏰ Đơn Đến Hạn", callback_data='expired'),
             InlineKeyboardButton("🔚 Quay Lại Menu Chính", callback_data='back_to_menu')
         ]
     ]
