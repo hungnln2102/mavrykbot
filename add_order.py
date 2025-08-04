@@ -285,7 +285,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         row_data[ORDER_COLUMNS["NGAY_DANG_KY"]], row_data[ORDER_COLUMNS["SO_NGAY"]] = ngay_bat_dau_str, so_ngay
         row_data[ORDER_COLUMNS["HET_HAN"]], row_data[ORDER_COLUMNS["CON_LAI"]] = ngay_het_han, f"=IF(ISBLANK(I{next_row}); \"\"; I{next_row}-TODAY())"
         row_data[ORDER_COLUMNS["NGUON"]], row_data[ORDER_COLUMNS["GIA_NHAP"]] = info.get("nguon", ""), info.get("gia_nhap_value", "")
-        row_data[ORDER_COLUMNS["GIA_BAN"]], row_data[ORDER_COLUMNS["GIA_TRI_CON_LAI"]] = gia_ban_value, f"=IF(OR(H{next_row}=0; H{next_row}=\"\"); 0; M{next_row}/H{next_row}*J{next_row})"
+        row_data[ORDER_COLUMNS["GIA_BAN"]], row_data[ORDER_COLUMNS["GIA_TRI_CON_LAI"]] = gia_ban_value, f"""=IF(OR(VALUE(SUBSTITUTE(SUBSTITUTE(H{next_row};" đ";"");".";""))=0; H{next_row}=""); 0; VALUE(SUBSTITUTE(SUBSTITUTE(M{next_row};" đ";"");".";""))/VALUE(SUBSTITUTE(SUBSTITUTE(H{next_row};" đ";"");".";""))*VALUE(SUBSTITUTE(SUBSTITUTE(J{next_row};" đ";"");".";"")) )"""
         row_data[ORDER_COLUMNS["CHECK"]] = ""
         row_data[ORDER_COLUMNS["TINH_TRANG"]] = f'=IF(J{next_row}<=0; "Hết Hạn"; IF(AND(J{next_row}>0; Q{next_row}=TRUE); "Đã Thanh Toán"; "Chưa Thanh Toán"))'        
         sheet.update(f"A{next_row}:Q{next_row}", [row_data], value_input_option='USER_ENTERED')
