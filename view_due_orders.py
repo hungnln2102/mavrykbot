@@ -1,4 +1,4 @@
-# view_due_orders.py (Hoàn thiện cuối cùng)
+# view_due_orders.py (Phiên bản hoàn chỉnh và ổn định)
 
 import requests
 import re
@@ -9,7 +9,6 @@ from utils import connect_to_sheet, escape_mdv2
 from add_order import tinh_ngay_het_han
 from datetime import datetime, timedelta
 from io import BytesIO
-from PIL import Image
 from menu import show_outer_menu
 from collections import OrderedDict
 from column import SHEETS, ORDER_COLUMNS, PRICE_COLUMNS
@@ -116,13 +115,12 @@ def build_order_caption(row: list, price_list_data: list, index: int, total: int
     try:
         amount = clean_price_to_amount(gia_value_raw)
         qr_url = f"https://img.vietqr.io/image/VPB-mavpre-compact2.png?amount={amount}&addInfo={ma_don_raw}&accountName=NGO%20LE%20NGOC%20HUNG"
-        response = requests.get(qr_url, headers={"User-Agent": "Mozilla/5.0"})
+        response = requests.get(qr_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
         response.raise_for_status()
         qr_image = BytesIO(response.content)
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
         logger.error(f"Lỗi tạo QR: {e}")
-        qr_image = BytesIO()
-        Image.new("RGB", (256, 256), "white").save(qr_image, "PNG")
+        qr_image = None # SỬA LỖI: Trả về None khi có lỗi
 
     if days_left <= 0: status_line = f"⛔️ Đã hết hạn {abs(days_left)} ngày trước"
     else: status_line = f"⏳ Còn lại {days_left} ngày"
@@ -146,10 +144,15 @@ def build_order_caption(row: list, price_list_data: list, index: int, total: int
         f"🔸 *Tên:* {ten_khach_md}\n" +
         (f"🔗 *Liên hệ:* {link_khach_md}\n" if get_val("LINK_KHACH") else "")
     )
+    # CẬP NHẬT: Thêm thông tin tài khoản vào footer
     footer = (
         escape_mdv2("━━━━━━━━━━━━━━━━━━━━━━\n") +
-        escape_mdv2("💬 Để duy trì dịch vụ liên tục, quý khách nên gia hạn trước ngày hết hạn.\n") +
-        escape_mdv2("📎 Quý khách vui lòng thanh toán kèm theo mã đơn hàng để dễ dàng đối chiếu.\n") +
+        escape_mdv2("💬 Để duy trì dịch vụ, quý khách vui lòng thanh toán theo thông tin dưới đây:\n\n") +
+        escape_mdv2("🏦 Ngân hàng: VP Bank\n") +
+        escape_mdv2("💳 STK: 9183400998\n") +
+        escape_mdv2("👤 Tên: NGO LE NGOC HUNG\n") +
+        escape_mdv2(f"📝 Nội dung: Thanh toán {ma_don_raw}\n\n") +
+        escape_mdv2("📎 Vui lòng ghi đúng mã đơn hàng trong nội dung chuyển khoản để được xử lý nhanh chóng.\n") +
         escape_mdv2("✨ Trân trọng cảm ơn quý khách!\n") + "\u200b"
     )
     return f"{header}\n{escape_mdv2('━━━━━━━━━━━━━━━━━━━━━━')}\n{body}\n{footer}", qr_image
@@ -169,7 +172,6 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     row_data, row_idx = order_info["data"], order_info["row_index"]
     
-    # ... (Phần logic tính toán ngày và giá mới giữ nguyên)
     product = row_data[ORDER_COLUMNS["SAN_PHAM"]].strip()
     matched = re.search(r"--(\d+)m", product)
     if not matched:
@@ -190,7 +192,6 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         sheet = connect_to_sheet().worksheet(SHEETS["ORDER"])
-        # Cập nhật các ô dữ liệu, bỏ qua ô công thức
         range_1 = f'G{row_idx}:I{row_idx}'
         values_1 = [[ngay_bat_dau_moi, str(so_ngay), ngay_het_han_moi]]
         sheet.update(range_1, values_1, value_input_option='USER_ENTERED')
@@ -202,12 +203,12 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("❌ Lỗi khi cập nhật Google Sheet.", show_alert=True)
         return
 
-    # Cập nhật cache và hiển thị đơn tiếp theo
     orders.pop(ma_don)
     context.user_data["expired_orders"] = orders
     await show_expired_order(update, context, "stay")
 
 async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE, direction: str):
+    """Hiển thị đơn hàng, xử lý thông minh trường hợp không tạo được QR code."""
     query = update.callback_query
     await query.answer()
     orders: OrderedDict = context.user_data.get("expired_orders", OrderedDict())
@@ -215,6 +216,7 @@ async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
     
     if not orders:
         await query.edit_message_text(escape_mdv2("✅ Không còn đơn hàng nào để hiển thị."))
+        await show_outer_menu(update, context, is_edit=False)
         return
 
     keys, total_orders = list(orders.keys()), len(orders)
@@ -240,13 +242,33 @@ async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
     ])
     reply_markup = InlineKeyboardMarkup(buttons)
 
-    try:
-        await query.message.edit_media(media=InputMediaPhoto(media=qr_image, caption=caption, parse_mode="MarkdownV2"), reply_markup=reply_markup)
-    except Exception as e:
-        logger.warning(f"Lỗi edit_media, thử gửi mới: {e}")
-        try: await query.message.delete()
-        except: pass
-        await query.message.chat.send_photo(photo=qr_image, caption=caption, parse_mode="MarkdownV2", reply_markup=reply_markup)
+    # SỬA LỖI: Xử lý thông minh khi có hoặc không có ảnh QR
+    if qr_image:
+        try:
+            qr_image.seek(0)
+            await query.message.edit_media(media=InputMediaPhoto(media=qr_image, caption=caption, parse_mode="MarkdownV2"), reply_markup=reply_markup)
+        except BadRequest as e:
+            if "message to edit not found" in str(e).lower() or "file must be non-empty" in str(e).lower():
+                logger.warning(f"Lỗi edit_media ('{e}'), thử gửi mới.")
+                try: 
+                    await query.message.delete()
+                except BadRequest:
+                    pass
+                qr_image.seek(0)
+                await query.message.chat.send_photo(photo=qr_image, caption=caption, parse_mode="MarkdownV2", reply_markup=reply_markup)
+            else:
+                logger.error(f"Lỗi Telegram không xác định: {e}")
+                await query.answer("❌ Đã xảy ra lỗi khi hiển thị đơn hàng.", show_alert=True)
+    else:
+        # Nếu không có ảnh, chỉ sửa tin nhắn văn bản
+        try:
+            await query.message.edit_text(text=caption, parse_mode="MarkdownV2", reply_markup=reply_markup)
+            await query.answer("⚠️ Không thể tạo mã QR.", show_alert=False) # Thông báo ngầm
+        except BadRequest as e:
+             if "message is not modified" in str(e).lower():
+                 pass # Bỏ qua nếu tin nhắn không thay đổi
+             else:
+                 logger.error(f"Lỗi khi sửa text: {e}")
 
 async def delete_order_from_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Xóa đơn hàng, thông báo bằng alert và hiển thị đơn tiếp theo từ cache."""
@@ -271,7 +293,6 @@ async def delete_order_from_expired(update: Update, context: ContextTypes.DEFAUL
         await query.answer("❌ Lỗi khi xóa đơn trên Google Sheet.", show_alert=True)
         return
         
-    # Cập nhật lại index của các đơn hàng còn lại trong cache
     updated_orders = OrderedDict()
     for key, value in orders.items():
         if key == ma_don_to_delete:
