@@ -29,13 +29,33 @@ def escape_mdv2(text):
     return re.sub(f'([{re.escape(special_chars)}])', r'\\\1', str(text))
 
 def chuan_hoa_gia(text):
-    """Chuẩn hóa và nhân giá trị tiền tệ."""
+    """
+    Hàm nâng cấp để chuẩn hóa giá trị tiền tệ từ nhiều định dạng khác nhau.
+    - Xóa các ký tự: '.', ',', 'đ', 'k', 'K' và khoảng trắng.
+    - Xử lý 'k' hoặc 'K' làm đơn vị nghìn.
+    - Trả về 0 nếu có lỗi.
+    """
     try:
-        so = int(str(text).replace(",", "").strip())
-        if so < 1000: so *= 1000
-        return "{:,}".format(so), so
+        s = str(text).lower().strip()
+        
+        is_thousand = 'k' in s
+        
+        # Loại bỏ tất cả các ký tự không phải là số
+        digits = ''.join(filter(str.isdigit, s))
+        
+        if not digits:
+            return "0", 0
+        number = int(digits)
+        
+        # Nếu có 'k' thì nhân với 1000
+        if is_thousand:
+            number *= 1000
+            
+        return "{:,}".format(number), number
+        
     except (ValueError, TypeError):
-        return None, None
+        # Nếu có bất kỳ lỗi nào trong quá trình chuyển đổi, trả về 0
+        return "0", 0
 
 def format_order_message(row_data):
     """Tạo nội dung tin nhắn chi tiết cho một đơn hàng."""
