@@ -260,10 +260,6 @@ async def nhap_note_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     else: context.user_data["note"] = update.message.text.strip(); await update.message.delete()
     return await hoan_tat_don(update, context)
 
-Chắc chắn rồi! Dưới đây là phiên bản hoàn chỉnh cho hàm hoan_tat_don của bạn, đã được sửa lỗi thiếu ghi chú và tối ưu lại một chút để đảm bảo hoạt động ổn định.
-
-Python
-
 import requests
 from datetime import datetime
 from telegram import Update
