@@ -6,3 +6,4 @@ Pillow
 python-dateutil
 aiohttp
 python-telegram-bot[rate-limiter]
+python-dotenv
