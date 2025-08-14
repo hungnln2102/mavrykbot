@@ -186,11 +186,13 @@ async def show_matched_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
 async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     Gia hạn đơn hàng, tự động tìm giá mới chính xác và chỉ hiển thị popup.
+    Phiên bản này "làm sạch" dữ liệu để chống lỗi ký tự ẩn.
     """
     query = update.callback_query
     await query.answer() 
     ma_don = query.data.split("|")[1].strip()
 
+    # ... (các phần 1, 2, 3 giữ nguyên như cũ) ...
     # 1. Lấy thông tin đơn hàng từ Cache
     matched_orders = context.user_data.get("matched_orders", [])
     order_info = next((o for o in matched_orders if o["data"][ORDER_COLUMNS["ID_DON_HANG"]] == ma_don), None)
@@ -225,43 +227,47 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         await query.answer(f"Lỗi: Ngày hết hạn cũ '{ngay_cuoi_cu}' không hợp lệ.", show_alert=True)
         return await end_update(update, context)
 
-    # 4. Tìm kiếm giá mới từ 'Bảng Giá' - ĐÃ SỬA LỖI
+    # 4. Tìm kiếm giá mới từ 'Bảng Giá'
     gia_nhap_moi, gia_ban_moi = None, None
     try:
         sheet_bang_gia = connect_to_sheet().worksheet(SHEETS["PRICE"])
         bang_gia_data = sheet_bang_gia.get_all_values()
-        
-        # <<< SỬA ĐỔI BẮT ĐẦU TỪ ĐÂY >>>
         is_ctv = ma_don.upper().startswith("MAVC")
         
+        # *** NÂNG CẤP LOGIC SO SÁNH ***
+        # Hàm nhỏ để làm sạch chuỗi: xóa mọi khoảng trắng và chuyển thành chữ thường
+        def clean_string(s):
+            return re.sub(r'\s+', '', s).lower()
+
+        # Áp dụng hàm làm sạch cho dữ liệu từ Bảng Đơn Hàng
+        san_pham_clean = clean_string(san_pham)
+        nguon_hang_clean = clean_string(nguon_hang)
+
         for row_gia in bang_gia_data[1:]:
-            # Lấy thông tin từ bảng giá và kiểm tra độ dài của hàng
-            ten_sp_bang_gia = row_gia[PRICE_COLUMNS["TEN_SAN_PHAM"]].strip() if len(row_gia) > PRICE_COLUMNS["TEN_SAN_PHAM"] else ""
-            nguon_bang_gia = row_gia[PRICE_COLUMNS["NGUON"]].strip() if len(row_gia) > PRICE_COLUMNS["NGUON"] else ""
+            ten_sp_bang_gia = row_gia[PRICE_COLUMNS["TEN_SAN_PHAM"]] if len(row_gia) > PRICE_COLUMNS["TEN_SAN_PHAM"] else ""
+            nguon_bang_gia = row_gia[PRICE_COLUMNS["NGUON"]] if len(row_gia) > PRICE_COLUMNS["NGUON"] else ""
+
+            # Áp dụng hàm làm sạch cho dữ liệu từ Bảng Giá
+            ten_sp_bang_gia_clean = clean_string(ten_sp_bang_gia)
+            nguon_bang_gia_clean = clean_string(nguon_bang_gia)
             
-            # So sánh sản phẩm và nguồn hàng
-            if ten_sp_bang_gia.lower() == san_pham.lower() and nguon_bang_gia.lower() == nguon_hang.lower():
-                # Lấy giá nhập
+            # So sánh các chuỗi đã được làm sạch hoàn toàn
+            if san_pham_clean in ten_sp_bang_gia_clean and nguon_hang_clean == nguon_bang_gia_clean:
+                
                 gia_nhap_moi_raw = row_gia[PRICE_COLUMNS["GIA_NHAP"]] if len(row_gia) > PRICE_COLUMNS["GIA_NHAP"] else "0"
-                
-                # Lấy giá bán tùy theo loại khách hàng
-                if is_ctv:
-                    gia_ban_col_index = PRICE_COLUMNS["GIA_BAN_CTV"]
-                else:
-                    gia_ban_col_index = PRICE_COLUMNS["GIA_BAN_LE"]
-                
+                gia_ban_col_index = PRICE_COLUMNS["GIA_BAN_CTV"] if is_ctv else PRICE_COLUMNS["GIA_BAN_LE"]
                 gia_ban_moi_raw = row_gia[gia_ban_col_index] if len(row_gia) > gia_ban_col_index else "0"
                 
-                # Chuẩn hóa giá trị
-                gia_nhap_moi, _ = chuan_hoa_gia(gia_nhap_moi_raw)
-                gia_ban_moi, _ = chuan_hoa_gia(gia_ban_moi_raw)
-                break # Dừng lại khi đã tìm thấy giá phù hợp
+                _, gia_nhap_moi = chuan_hoa_gia(gia_nhap_moi_raw)
+                _, gia_ban_moi = chuan_hoa_gia(gia_ban_moi_raw)
+                break 
     except Exception as e:
         logging.warning(f"Không thể truy cập '{SHEETS['PRICE']}': {e}. Sẽ sử dụng giá cũ.")
 
+    # ... (các phần 5, 6, 7 giữ nguyên như cũ) ...
     # 5. Quyết định giá trị cuối cùng để cập nhật
-    final_gia_nhap = gia_nhap_moi if gia_nhap_moi is not None else gia_nhap_cu
-    final_gia_ban = gia_ban_moi if gia_ban_moi is not None else gia_ban_cu
+    final_gia_nhap = gia_nhap_moi if gia_nhap_moi is not None else chuan_hoa_gia(gia_nhap_cu)[1]
+    final_gia_ban = gia_ban_moi if gia_ban_moi is not None else chuan_hoa_gia(gia_ban_cu)[1]
         
     # 6. Chuẩn bị và thực hiện cập nhật
     updates = [
@@ -278,11 +284,19 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         
         await query.answer("✅ Gia hạn và cập nhật giá thành công!", show_alert=True)
         
+        # 7. Cập nhật cache và hiển thị lại
+        order_info['data'][ORDER_COLUMNS["NGAY_DANG_KY"]] = ngay_bat_dau_moi
+        order_info['data'][ORDER_COLUMNS["SO_NGAY"]] = str(so_ngay)
+        order_info['data'][ORDER_COLUMNS["HET_HAN"]] = ngay_het_han_moi
+        order_info['data'][ORDER_COLUMNS["GIA_NHAP"]] = "{:,}".format(final_gia_nhap or 0)
+        order_info['data'][ORDER_COLUMNS["GIA_BAN"]] = "{:,}".format(final_gia_ban or 0)
+        
+        return await show_matched_order(update, context)
+        
     except Exception as e:
         logging.error(f"Lỗi khi gia hạn đơn {ma_don}: {e}")
         await query.answer("❌ Lỗi: Không thể cập nhật dữ liệu lên Google Sheet.", show_alert=True)
     
-    # 7. Kết thúc và quay về menu
     return await end_update(update, context)
 
 async def delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
