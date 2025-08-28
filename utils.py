@@ -1,63 +1,83 @@
-import random
-import re
-import string
+# app/utils.py
+import os, json, logging
 import gspread
-import os
-import json
-from oauth2client.service_account import ServiceAccountCredentials
-from config import SHEET_NAME, logger
+from google.oauth2.service_account import Credentials
 
-# Kết nối với Google Sheets – trả về toàn bộ spreadsheet
+logger = logging.getLogger(__name__)
+
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
+
+def _creds_path():
+    # cố định tới app/creds.json, kể cả chạy dưới NSSM
+    here = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(here, "creds.json")
+
+def service_account_email():
+    with open(_creds_path(), "r", encoding="utf-8") as f:
+        return json.load(f).get("client_email")
+
+def _client():
+    creds = Credentials.from_service_account_file(_creds_path(), scopes=SCOPES)
+    return gspread.authorize(creds)
+
+def _spreadsheet_id():
+    # ưu tiên env; có thể fallback sang config nếu bạn có
+    sid = os.getenv("SPREADSHEET_ID")
+    if sid:
+        return sid
+    try:
+        from config import SHEET_ID as sid_from_cfg  # nếu bạn có
+        return sid_from_cfg
+    except Exception:
+        pass
+    try:
+        # fallback cuối: mở theo tên (kém ổn định)
+        from config import SHEET_NAME as name
+        return None if not name else ("NAME:" + name)
+    except Exception:
+        return None
+
 def connect_to_sheet():
+    """
+    Trả về gspread.Spreadsheet đã mở sẵn.
+    - Nếu có SPREADSHEET_ID: open_by_key
+    - Nếu không: (fallback) open theo tên SHEET_NAME
+    """
+    client = _client()
+    sid = _spreadsheet_id()
+    if not sid:
+        raise RuntimeError(
+            "Chưa cấu hình SPREADSHEET_ID (nên đặt env hoặc SHEET_ID trong config.py)."
+        )
     try:
-        scope = [
-            "https://spreadsheets.google.com/feeds",
-            "https://www.googleapis.com/auth/drive"
-        ]
-        creds_dict = json.loads(os.environ["GOOGLE_CREDS"])
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        client = gspread.authorize(creds)
-        spreadsheet = client.open(SHEET_NAME)
-        return spreadsheet
+        if sid.startswith("NAME:"):
+            name = sid.split("NAME:", 1)[1]
+            return client.open(name)
+        return client.open_by_key(sid)
     except Exception as e:
-        logger.error(f"Lỗi kết nối đến Google Sheet: {str(e)}")
+        logger.error("Lỗi kết nối Google Sheet: %s", e, exc_info=True)
         raise
+
 def append_to_sheet(sheet_name: str, data: list):
-    """Ghi một dòng dữ liệu mới vào cuối một worksheet được chỉ định."""
-    try:
-        spreadsheet = connect_to_sheet()
-        worksheet = spreadsheet.worksheet(sheet_name)
-        worksheet.append_row(data, value_input_option='USER_ENTERED')
-        logger.info(f"✅ Đã ghi thành công vào sheet '{sheet_name}'")
-    except gspread.exceptions.WorksheetNotFound:
-        logger.error(f"❌ Lỗi: Không tìm thấy worksheet có tên '{sheet_name}'")
-        raise
-    except Exception as e:
-        logger.error(f"❌ Lỗi khi ghi vào sheet '{sheet_name}': {e}")
-        raise
+    sh = connect_to_sheet()
+    ws = sh.worksheet(sheet_name)
+    ws.append_row(data, value_input_option="USER_ENTERED")
+    logger.info("✅ Đã ghi thành công vào sheet '%s'", sheet_name)
 
-# Tạo ID đơn hàng ngẫu nhiên không trùng lặp
 def generate_unique_id(sheet, loai_khach: str):
-    """
-    Tạo mã đơn hàng duy nhất.
-    - loai_khach: 'ctv' hoặc 'le' (phân biệt tiền tố MAVC hoặc MAVL)
-    """
-    loai_khach = loai_khach.strip().lower()
+    import random, string
+    loai_khach = (loai_khach or "").strip().lower()
     prefix = "MAVC" if loai_khach == "ctv" else "MAVL"
-
     while True:
-        random_part = ''.join(random.choices(string.ascii_uppercase + string.digits, k=5))
-        order_id = f"{prefix}{random_part}"
-        
-        # Kiểm tra mã đã tồn tại trong cột A chưa
-        all_ids = sheet.col_values(1)
-        if order_id not in all_ids:
+        order_id = f"{prefix}{''.join(random.choices(string.ascii_uppercase + string.digits, k=5))}"
+        if order_id not in sheet.col_values(1):
             return order_id
-        
+
 def escape_mdv2(text: str) -> str:
-    """Hàm escape các ký tự đặc biệt cho chế độ MarkdownV2 của Telegram."""
+    import re
     if not isinstance(text, str):
         text = str(text)
-    # Các ký tự đặc biệt cần escape trong MarkdownV2
-    escape_chars = r'_*[]()~`>#+-=|{}.!'
-    return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
+    return re.sub(r'([_\*\[\]\(\)~`>\#\+\-\=\|\{\}\.!])', r'\\\1', text)
