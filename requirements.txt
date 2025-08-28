@@ -1,0 +1,9 @@
+python-telegram-bot==20.7
+gspread
+oauth2client
+requests
+Pillow
+python-dateutil
+aiohttp
+python-telegram-bot[rate-limiter]
+python-dotenv
