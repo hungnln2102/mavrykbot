@@ -10,7 +10,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-WEBHOOK_SECRET = "b9d02dd9510d4570a9d176bc401f4754"
+WEBHOOK_SECRET = "ef3ff711d58d498aa6147d60eb3923df"
 
 def extract_ma_don(text):
     """Lấy tất cả mã đơn theo định dạng MAVxxxxx trở lên."""
