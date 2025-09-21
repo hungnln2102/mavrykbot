@@ -1,10 +1,11 @@
-#Phân chia các cột theo các biến
+# Phân chia các cột theo các biến
 SHEETS = {
     "ORDER": "Bảng Đơn Hàng",
     "PRICE": "Bảng Giá",
     "SUPPLY": "Thông Tin Nguồn",
     "RECEIPT": "Biên Lai Thanh Toán",
-    "REFUND": "Hoàn Tiền"
+    "REFUND": "Hoàn Tiền",
+    "BANK_LIST": "Bank_List"  # Thêm sheet quản lý ngân hàng
 }
 
 ORDER_COLUMNS = {
@@ -39,10 +40,10 @@ PRICE_COLUMNS = {
 
 # ====== THÔNG TIN NGUỒN ======
 SUPPLY_COLUMNS = {
-    "TEN_NGUON": 0,          # A
-    "SO_TK": 1,              # B
-    "CHU_TK": 2,             # C
-    "NGAN_HANG": 3           # D
+    "TEN_NGUON": 0,              # A
+    "THONG_TIN_THANH_TOAN": 1,   # B (Cột này chứa cả STK và mã BIN)
+    "CHU_TK": 2,                 # C
+    "NGAN_HANG": 3               # D
 }
 
 # ====== BIÊN LAI THANH TOÁN ======

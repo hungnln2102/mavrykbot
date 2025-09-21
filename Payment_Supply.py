@@ -17,6 +17,19 @@ logger = logging.getLogger(__name__)
 
 # --- CÁC HÀM TIỆN ÍCH ---
 
+def load_bank_map() -> dict:
+    """Tải danh sách ngân hàng từ sheet 'Bank_List' và chuyển thành dictionary."""
+    try:
+        spreadsheet = connect_to_sheet()
+        bank_sheet = spreadsheet.worksheet(SHEETS["BANK_LIST"])
+        # Lấy tất cả các hàng, bỏ qua hàng tiêu đề (hàng đầu tiên)
+        records = bank_sheet.get_all_values()[1:]
+        # Tạo dictionary với key là BIN (cột 1) và value là BankName (cột 2)
+        return {row[0].strip(): row[1].strip() for row in records if row and row[0]}
+    except Exception as e:
+        logger.error(f"Không thể tải danh sách ngân hàng từ Google Sheets: {e}")
+        return {} # Trả về dictionary rỗng nếu có lỗi
+
 def escape_mdv2(text: str) -> str:
     """Escape ký tự đặc biệt cho MarkdownV2."""
     if not isinstance(text, str): text = str(text)
@@ -87,6 +100,8 @@ async def show_source_payment(update: Update, context: ContextTypes.DEFAULT_TYPE
     if query:
         await query.answer()
 
+    bank_map = load_bank_map()
+
     if "payment_unpaid_sources" not in context.user_data:
         if query:
             try: 
@@ -131,7 +146,10 @@ async def show_source_payment(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data["payment_current_index"] = index
     source_info = unpaid_sources[index]
     row_data, col_index = source_info["data"], context.user_data["payment_col_index"]
-    ten_nguon, thong_tin, tong_tien_expected_str = row_data[SUPPLY_COLUMNS["TEN_NGUON"]], row_data[SUPPLY_COLUMNS["SO_TK"]], row_data[col_index]
+    
+    ten_nguon = row_data[SUPPLY_COLUMNS["TEN_NGUON"]]
+    thong_tin = row_data[SUPPLY_COLUMNS["THONG_TIN_THANH_TOAN"]]
+    tong_tien_expected_str = row_data[col_index]
     
     order_data_cache = context.user_data.get("payment_order_data_cache", [])
     actual_sum = calculate_actual_sum(ten_nguon, order_data_cache)
@@ -142,17 +160,20 @@ async def show_source_payment(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     lines = thong_tin.strip().split("\n")
     stk, bank_code = (lines[0].strip() if lines else "", lines[1].strip() if len(lines) > 1 else "")
+    
+    bank_name = bank_map.get(bank_code, bank_code)
 
     ten_nguon_md = escape_mdv2(ten_nguon)
     tong_tien_md = escape_mdv2(tong_tien_expected_str)
     stk_md = escape_mdv2(stk)
-    bank_code_md = escape_mdv2(bank_code)
+    bank_display_md = escape_mdv2(f"{bank_name} ({bank_code})")
     time_range_md = escape_mdv2(context.user_data['payment_range'])
+
     caption = (
         f"🏦 *Tên nguồn:* {ten_nguon_md}\n"
         f"💰 *Tổng tiền cần thanh toán:* {tong_tien_md}\n"
         f"🔢 *STK/Inick:* `{stk_md}`\n"
-        f"🏦 *Ngân hàng:* {bank_code_md}\n"
+        f"🏦 *Ngân hàng:* {bank_display_md}\n"
         f"📆 *Thời gian:* {time_range_md}"
     )
     if actual_sum != expected_sum:
