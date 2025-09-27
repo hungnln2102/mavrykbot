@@ -397,6 +397,9 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         + (f"🔗 *Thông Tin Liên hệ:* {link_khach_md}\n" if link_khach_md else "")
         + f"\n━━━━━━ 💳 ━━━━━━\n\n"
         f"📢 *HƯỚNG DẪN THANH TOÁN*\n"
+        f"📢 *STK:* 9183400998\n"
+        f"📢 *Tên:* NGO LE NGOC HUNG\n"
+        f"📢 *Nội dung:* Thanh toán `{ma_don_md}`\n"
         f"{escape_mdv2('Vui lòng chuyển khoản đúng nội dung và số tiền.')}\n\n"
         f"🙏 *{escape_mdv2('Cảm ơn quý khách đã tin tưởng và ủng hộ!')}* ✨"
     )
