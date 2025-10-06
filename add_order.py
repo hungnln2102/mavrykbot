@@ -140,11 +140,23 @@ async def nhap_ten_sp_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         return STATE_NHAP_MA_MOI
 
     context.user_data['grouped_products'] = grouped
+    
+    # --- THAY ĐỔI LOGIC CHIA CỘT TẠI ĐÂY ---
+    product_keys = list(grouped.keys())
+    num_products = len(product_keys)
+    # Tự động quyết định số cột dựa trên số lượng sản phẩm
+    num_columns = 3 if num_products > 9 else 2
+    
     keyboard, row = [], []
-    for ma_sp in grouped.keys():
+    for ma_sp in product_keys:
         row.append(InlineKeyboardButton(text=ma_sp, callback_data=f"chon_ma|{ma_sp}"))
-        if len(row) == 2: keyboard.append(row); row = []
-    if row: keyboard.append(row)
+        # Điều kiện chia cột được thay bằng biến động
+        if len(row) == num_columns:
+            keyboard.append(row)
+            row = []
+    if row: 
+        keyboard.append(row)
+    
     keyboard.append([InlineKeyboardButton("✏️ Nhập Mã Mới", callback_data="nhap_ma_moi"), InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")])
     
     await context.bot.edit_message_text(

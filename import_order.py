@@ -85,12 +85,52 @@ def get_price_data() -> list:
 def kbd_cancel() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="imp_cancel")]])
 def kbd_codes(cands: list[str]) -> InlineKeyboardMarkup:
-    rows = [[InlineKeyboardButton(name, callback_data=f"imp_code::{name}")] for name in cands]
+    # --- THAY ĐỔI LOGIC CHIA CỘT TẠI ĐÂY ---
+    num_products = len(cands)
+    # Tự động quyết định số cột dựa trên số lượng sản phẩm
+    num_columns = 3 if num_products > 9 else 2
+
+    rows = []
+    row = []
+    for name in cands:
+        button = InlineKeyboardButton(name, callback_data=f"imp_code::{name}")
+        row.append(button)
+        # Điều kiện chia cột được thay bằng biến động
+        if len(row) == num_columns:
+            rows.append(row)
+            row = []
+    
+    # Thêm hàng cuối cùng nếu còn nút lẻ
+    if row:
+        rows.append(row)
+
+    # Thêm các nút chức năng
     rows.append([InlineKeyboardButton("✏️ Nhập Mã Mới", callback_data="imp_new_code")])
     rows.append([InlineKeyboardButton("🔙 Quay lại", callback_data="imp_cancel")])
     return InlineKeyboardMarkup(rows)
-def kbd_sources(srcs: list[str]) -> InlineKeyboardMarkup:
-    rows = [[InlineKeyboardButton(s, callback_data=f"imp_src::{s}")] for s in srcs]
+def kbd_sources(srcs: list[dict]) -> InlineKeyboardMarkup:
+    rows = []
+    row = []
+    for source_info in srcs:
+        try:
+            # Định dạng lại giá cho đẹp (vd: 850000 -> 850,000)
+            price_val = int(re.sub(r'[^\d]', '', source_info.get('price', '0')))
+            price_display = f"{price_val:,}"
+        except (ValueError, TypeError):
+            price_display = source_info.get('price', '0')
+
+        source_name = source_info.get('name', 'N/A')
+        label = f"{source_name} ({price_display}đ)"
+        button = InlineKeyboardButton(label, callback_data=f"imp_src::{source_name}")
+        
+        row.append(button)
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+
+    # Thêm các nút chức năng
     rows.append([InlineKeyboardButton("➕ Nguồn Mới", callback_data="imp_new_src")])
     rows.append([InlineKeyboardButton("🔙 Quay lại", callback_data="imp_cancel")])
     return InlineKeyboardMarkup(rows)
@@ -140,14 +180,29 @@ async def on_pick_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     if query.data == "imp_new_code":
         await query.message.edit_text("✳️ Vui lòng nhập *mã sản phẩm mới* \\(ví dụ: Netflix--1m\\):", parse_mode="MarkdownV2", reply_markup=kbd_cancel())
         return STATE_NEW_CODE
+    
     ma_chon = query.data.split("::", 1)[1]
     context.user_data['imp']['code'] = ma_chon
     so_ngay = extract_days_from_ma_sp(ma_chon)
     context.user_data['imp']['so_ngay'] = str(so_ngay) if so_ngay > 0 else "0"
+    
     ds_sp = context.user_data.get("grouped_products", {}).get(ma_chon, [])
     context.user_data['imp']['ds_san_pham_theo_ma'] = ds_sp
-    sources = sorted(list(set(r[PRICE_COLUMNS["NGUON"]].strip() for r in ds_sp if len(r) > PRICE_COLUMNS["NGUON"] and r[PRICE_COLUMNS["NGUON"]].strip())))
-    await query.message.edit_text("🧭 Vui lòng chọn *Nguồn hàng*:", parse_mode="MarkdownV2", reply_markup=kbd_sources(sources))
+    
+    # Lấy nguồn và giá, loại bỏ trùng lặp
+    sources_with_prices = {}
+    for r in ds_sp:
+        try:
+            name = r[PRICE_COLUMNS["NGUON"]].strip()
+            price_str = r[PRICE_COLUMNS["GIA_NHAP"]].strip()
+            if name and name not in sources_with_prices:
+                sources_with_prices[name] = price_str
+        except IndexError:
+            continue
+    
+    sources_list = [{'name': name, 'price': price} for name, price in sources_with_prices.items()]
+    
+    await query.message.edit_text("🧭 Vui lòng chọn *Nguồn hàng*:", parse_mode="MarkdownV2", reply_markup=kbd_sources(sources_list))
     return STATE_PICK_SOURCE
 
 async def on_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -172,13 +227,25 @@ async def on_pick_source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             except (ValueError, IndexError): gia_nhap = 0
             break
     context.user_data['imp']['cost'] = gia_nhap
-    await query.message.edit_text("📝 Vui lòng nhập *Thông tin sản phẩm* (vd: tài khoản, mật khẩu):", parse_mode="MarkdownV2", reply_markup=kbd_cancel())
+    
+    # SỬA DÒNG DƯỚI ĐÂY
+    await query.message.edit_text("📝 Vui lòng nhập *Thông tin sản phẩm* \\(vd: tài khoản, mật khẩu\\):", parse_mode="MarkdownV2", reply_markup=kbd_cancel())
+    
     return STATE_NHAP_THONG_TIN
 
 async def on_new_source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     src = update.message.text.strip(); await update.message.delete()
     context.user_data['imp']['source'] = src
-    await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=context.user_data.get('main_message_id'), text="📝 Vui lòng nhập *Thông tin sản phẩm* (vd: tài khoản, mật khẩu):", parse_mode="MarkdownV2", reply_markup=kbd_cancel())
+    
+    # SỬA DÒNG DƯỚI ĐÂY
+    await context.bot.edit_message_text(
+        chat_id=update.effective_chat.id, 
+        message_id=context.user_data.get('main_message_id'), 
+        text="📝 Vui lòng nhập *Thông tin sản phẩm* \\(vd: tài khoản, mật khẩu\\):", 
+        parse_mode="MarkdownV2", 
+        reply_markup=kbd_cancel()
+    )
+    
     return STATE_NHAP_THONG_TIN
 
 async def nhap_thong_tin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
