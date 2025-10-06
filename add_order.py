@@ -3,6 +3,7 @@
 import logging
 import re
 import asyncio
+import requests
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -14,7 +15,7 @@ from utils import connect_to_sheet, generate_unique_id, escape_mdv2
 from menu import show_main_selector
 from column import SHEETS, PRICE_COLUMNS, ORDER_COLUMNS
 from collections import defaultdict
-import requests
+
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,17 @@ logger = logging.getLogger(__name__)
  STATE_NHAP_GIA_BAN, STATE_NHAP_NOTE) = range(13)
 
 # --- Các hàm tiện ích ---
+def _col_letter(col_idx: int) -> str:
+    """Chuyển đổi chỉ số cột (0=A, 1=B) thành ký tự cột trong Google Sheet."""
+    if col_idx < 0:
+        return ""
+    letter = ""
+    while col_idx >= 0:
+        col_idx, remainder = divmod(col_idx, 26)
+        letter = chr(65 + remainder) + letter
+        col_idx -= 1
+    return letter
+
 def extract_days_from_ma_sp(ma_sp: str) -> int:
     match = re.search(r"--(\d+)m", ma_sp.lower())
     if match:
@@ -269,15 +281,6 @@ async def nhap_note_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     else: context.user_data["note"] = update.message.text.strip(); await update.message.delete()
     return await hoan_tat_don(update, context)
 
-import requests
-from datetime import datetime
-from telegram import Update
-from telegram.ext import ContextTypes, ConversationHandler
-# Giả sử các hàm và biến này đã được import từ các file khác của bạn
-from utils import connect_to_sheet, escape_mdv2
-from menu import show_main_selector
-from column import SHEETS, ORDER_COLUMNS # Quan trọng: Cần có ORDER_COLUMNS
-
 # --- Hàm tính toán ---
 def tinh_ngay_het_han(ngay_bat_dau_str, so_ngay_dang_ky):
     """Sử dụng logic tính ngày chuẩn, có trừ 1 ngày."""
@@ -312,12 +315,14 @@ async def end_add(update: Update, context: ContextTypes.DEFAULT_TYPE, success: b
 
 async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Tổng hợp dữ liệu và ghi vào 'Bảng Đơn Hàng' theo ORDER_COLUMNS.
-    Công thức được dựng theo mapping cột -> không phụ thuộc H/J/M/Q cố định.
+    Tổng hợp dữ liệu, ghi vào Google Sheet và gửi tóm tắt.
+    Đã thêm try...finally để chống treo bot khi gửi tin nhắn kết quả.
     """
     query = update.callback_query
     chat_id = query.message.chat.id if query else update.effective_chat.id
     main_message_id = context.user_data.get('main_message_id')
+    
+    # Gửi tin nhắn chờ
     if main_message_id:
         await context.bot.edit_message_text(
             chat_id=chat_id,
@@ -325,115 +330,90 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             text="⏳ Đang hoàn tất đơn hàng, vui lòng chờ..."
         )
 
-    info = context.user_data
-    ngay_bat_dau_str = datetime.now().strftime("%d/%m/%Y")
-    so_ngay = info.get("so_ngay", "0")
-    gia_ban_value = info.get("gia_ban_value", 0)
-    ngay_het_han = tinh_ngay_het_han(ngay_bat_dau_str, so_ngay)
-
+    # --- Bắt đầu khối xử lý chính ---
     try:
-        sheet = connect_to_sheet().worksheet(SHEETS["ORDER"])
-        next_row = len(sheet.col_values(1)) + 1
+        # 1. Thu thập và tính toán dữ liệu
+        info = context.user_data
+        ngay_bat_dau_str = datetime.now().strftime("%d/%m/%Y")
+        so_ngay = info.get("so_ngay", "0")
+        gia_ban_value = info.get("gia_ban_value", 0)
+        ngay_het_han = tinh_ngay_het_han(ngay_bat_dau_str, so_ngay)
 
-        row_data = [""] * len(ORDER_COLUMNS)
-        row_data[ORDER_COLUMNS["ID_DON_HANG"]]     = info.get("ma_don", "")
-        row_data[ORDER_COLUMNS["SAN_PHAM"]]        = info.get("ma_chon", info.get("ten_san_pham_raw", ""))
-        row_data[ORDER_COLUMNS["THONG_TIN_DON"]]   = info.get("thong_tin_don", "")
-        row_data[ORDER_COLUMNS["TEN_KHACH"]]       = info.get("khach_hang", "")
-        row_data[ORDER_COLUMNS["LINK_KHACH"]]      = info.get("link_khach", "")
-        row_data[ORDER_COLUMNS["SLOT"]]            = info.get("slot", "")
-        row_data[ORDER_COLUMNS["NGAY_DANG_KY"]]    = ngay_bat_dau_str
-        row_data[ORDER_COLUMNS["SO_NGAY"]]         = so_ngay
-        row_data[ORDER_COLUMNS["HET_HAN"]]         = ngay_het_han
+        # 2. Ghi dữ liệu vào Google Sheet
+        try:
+            sheet = connect_to_sheet().worksheet(SHEETS["ORDER"])
+            next_row = len(sheet.col_values(1)) + 1
 
-        # --- Công thức Còn Lại: (HẾT_HẠN - TODAY())
-        col_HH = _col_letter(ORDER_COLUMNS["HET_HAN"])
-        col_CL = _col_letter(ORDER_COLUMNS["CON_LAI"])
-        row_data[ORDER_COLUMNS["CON_LAI"]] = f'=IF(ISBLANK({col_HH}{next_row}); ""; {col_HH}{next_row}-TODAY())'
+            row_data = [""] * len(ORDER_COLUMNS)
+            row_data[ORDER_COLUMNS["ID_DON_HANG"]]     = info.get("ma_don", "")
+            row_data[ORDER_COLUMNS["SAN_PHAM"]]        = info.get("ma_chon", info.get("ten_san_pham_raw", ""))
+            row_data[ORDER_COLUMNS["THONG_TIN_DON"]]   = info.get("thong_tin_don", "")
+            row_data[ORDER_COLUMNS["TEN_KHACH"]]       = info.get("khach_hang", "")
+            row_data[ORDER_COLUMNS["LINK_KHACH"]]      = info.get("link_khach", "")
+            row_data[ORDER_COLUMNS["SLOT"]]            = info.get("slot", "")
+            row_data[ORDER_COLUMNS["NGAY_DANG_KY"]]    = ngay_bat_dau_str
+            row_data[ORDER_COLUMNS["SO_NGAY"]]         = so_ngay
+            row_data[ORDER_COLUMNS["HET_HAN"]]         = ngay_het_han
+            row_data[ORDER_COLUMNS["NGUON"]]           = info.get("nguon", "")
+            row_data[ORDER_COLUMNS["GIA_NHAP"]]        = info.get("gia_nhap_value", "")
+            row_data[ORDER_COLUMNS["GIA_BAN"]]         = gia_ban_value
+            row_data[ORDER_COLUMNS["GHI_CHU"]]         = info.get("note", "")
+            row_data[ORDER_COLUMNS["CHECK"]]           = "" 
 
-        row_data[ORDER_COLUMNS["NGUON"]]           = info.get("nguon", "")
-        row_data[ORDER_COLUMNS["GIA_NHAP"]]        = info.get("gia_nhap_value", "")
-        row_data[ORDER_COLUMNS["GIA_BAN"]]         = gia_ban_value
+            # --- Tạo công thức tự động ---
+            col_HH = _col_letter(ORDER_COLUMNS["HET_HAN"])
+            col_CL = _col_letter(ORDER_COLUMNS["CON_LAI"])
+            col_SN = _col_letter(ORDER_COLUMNS["SO_NGAY"])
+            col_GB = _col_letter(ORDER_COLUMNS["GIA_BAN"])
+            col_CK = _col_letter(ORDER_COLUMNS["CHECK"])
 
-        # --- Giá Trị Còn Lại: (GIA_BAN / SO_NGAY) * CON_LAI
-        col_SN = _col_letter(ORDER_COLUMNS["SO_NGAY"])
-        col_GB = _col_letter(ORDER_COLUMNS["GIA_BAN"])
-        row_data[ORDER_COLUMNS["GIA_TRI_CON_LAI"]] = (
-            f'=IF(OR({col_SN}{next_row}="";{col_SN}{next_row}=0); 0; '
-            f'{col_GB}{next_row}/{col_SN}{next_row}*{col_CL}{next_row})'
+            row_data[ORDER_COLUMNS["CON_LAI"]] = f'=IF(ISBLANK({col_HH}{next_row}); ""; {col_HH}{next_row}-TODAY())'
+            row_data[ORDER_COLUMNS["GIA_TRI_CON_LAI"]] = f'=IF(OR({col_SN}{next_row}="";{col_SN}{next_row}=0); 0; IFERROR({col_GB}{next_row}/{col_SN}{next_row}*{col_CL}{next_row}; 0))'
+            row_data[ORDER_COLUMNS["TINH_TRANG"]] = f'=IF({col_CL}{next_row}<=0; "Hết Hạn"; IF({col_CK}{next_row}=TRUE; "Đã Thanh Toán"; "Chưa Thanh Toán"))'
+            
+            # Cập nhật vào sheet
+            end_col_letter = _col_letter(len(ORDER_COLUMNS) - 1)
+            sheet.update(f"A{next_row}:{end_col_letter}{next_row}", [row_data], value_input_option='USER_ENTERED')
+
+        except Exception as e:
+            error_message = escape_mdv2(f"❌ Lỗi khi ghi đơn hàng vào Google Sheet: {e}")
+            await context.bot.edit_message_text(chat_id=chat_id, message_id=main_message_id, text=error_message, parse_mode="MarkdownV2")
+            # Thoát sớm nếu không ghi được vào sheet
+            return await end_add(update, context, success=False)
+
+        # 3. Gửi tóm tắt và ảnh QR cho người dùng
+        ma_don_final = info.get('ma_don','')
+        qr_url = f"https://img.vietqr.io/image/VPB-9183400998-compact2.png?amount={gia_ban_value}&addInfo={requests.utils.quote(ma_don_final)}&accountName=NGO LE NGOC HUNG"
+
+        caption = (
+            f"✅ Đơn hàng `{escape_mdv2(ma_don_final)}` đã được tạo thành công\\!\n\n"
+            f"📦 *THÔNG TIN SẢN PHẨM*\n"
+            f"🔹 *Tên Sản Phẩm:* {escape_mdv2(info.get('ma_chon', ''))}\n"
+            f"📝 *Thông Tin Đơn Hàng:* {escape_mdv2(info.get('thong_tin_don', ''))}\n"
+            f"📆 *Ngày Bắt đầu:* {escape_mdv2(ngay_bat_dau_str)}\n"
+            f"⏳ *Thời hạn:* {escape_mdv2(so_ngay)} ngày\n"
+            f"📅 *Ngày Hết hạn:* {escape_mdv2(ngay_het_han)}\n"
+            f"💵 *Giá bán:* {escape_mdv2(f'{gia_ban_value:,} đ')}\n\n"
+            f"👤 *THÔNG TIN KHÁCH HÀNG*\n"
+            f"🔸 *Tên Khách Hàng:* {escape_mdv2(info.get('khach_hang', ''))}\n\n"
+            f"📢 *HƯỚNG DẪN THANH TOÁN*\n"
+            f"📢 *STK:* 9183400998\n"
+            f"📢 *Nội dung:* Thanh toán `{escape_mdv2(ma_don_final)}`"
         )
-
-        # --- Check & Tình Trạng
-        # CHECK thường là checkbox (TRUE/FALSE)
-        # TÌNH TRẠNG = IF(CON_LAI<=0; "Hết Hạn"; IF(CHECK=TRUE; "Đã Thanh Toán"; "Chưa Thanh Toán"))
-        col_CK = _col_letter(ORDER_COLUMNS["CHECK"])
-        row_data[ORDER_COLUMNS["CHECK"]]      = ""  # hoặc giữ trống để bạn tick sau
-        row_data[ORDER_COLUMNS["TINH_TRANG"]] = (
-            f'=IF({col_CL}{next_row}<=0; "Hết Hạn"; '
-            f'IF({col_CK}{next_row}=TRUE; "Đã Thanh Toán"; "Chưa Thanh Toán"))'
-        )
-
-        if "GHI_CHU" in ORDER_COLUMNS:
-            row_data[ORDER_COLUMNS["GHI_CHU"]] = info.get("note", "")
-
-        end_col_letter = _col_letter(len(ORDER_COLUMNS) - 1)
-        sheet.update(f"A{next_row}:{end_col_letter}{next_row}", [row_data], value_input_option='USER_ENTERED')
+        
+        # Xóa tin nhắn chờ và gửi ảnh QR
+        await context.bot.delete_message(chat_id=chat_id, message_id=main_message_id)
+        await context.bot.send_photo(chat_id=chat_id, photo=qr_url, caption=caption, parse_mode="MarkdownV2")
+        await show_main_selector(update, context, edit=False)
 
     except Exception as e:
-        error_message = escape_mdv2(f"❌ Đã xảy ra lỗi khi ghi đơn hàng vào Google Sheet: {e}")
-        await context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=main_message_id,
-            text=error_message,
-            parse_mode="MarkdownV2"
-        )
-        return await end_add(update, context, success=False)
-
-    # --- Gửi QR & tóm tắt (giữ nguyên như bạn đang dùng)
-    ma_don_final = info.get('ma_don','')
-    qr_url = f"https://img.vietqr.io/image/VPB-9183400998-compact2.png?amount={gia_ban_value}&addInfo={requests.utils.quote(ma_don_final)}&accountName=NGO LE NGOC HUNG"
-
-    ma_don_md        = escape_mdv2(ma_don_final)
-    ma_san_pham_md   = escape_mdv2(info.get("ma_chon", ""))
-    mo_ta_md         = escape_mdv2(info.get("thong_tin_don", ""))
-    slot_md          = escape_mdv2(info.get("slot", ""))
-    ngay_bat_dau_md  = escape_mdv2(ngay_bat_dau_str)
-    so_ngay_md       = escape_mdv2(so_ngay)
-    ngay_het_han_md  = escape_mdv2(ngay_het_han)
-    gia_ban_md       = escape_mdv2(f"{gia_ban_value:,} đ")
-    khach_hang_md    = escape_mdv2(info.get("khach_hang", ""))
-    link_khach_md    = escape_mdv2(info.get("link_khach", ""))
-    note_md          = escape_mdv2(info.get("note", ""))
-
-    # Xóa tin nhắn chờ và gửi ảnh QR
-    await context.bot.delete_message(chat_id=chat_id, message_id=main_message_id)
-    caption = (
-        f"✅ Đơn hàng `{ma_don_md}` đã được tạo thành công\\!\n\n"
-        f"📦 *THÔNG TIN SẢN PHẨM*\n"
-        f"🔹 *Tên Sản Phẩm:* {ma_san_pham_md}\n"
-        f"📝 *Thông Tin Đơn Hàng:* {mo_ta_md}\n"
-        + (f"🧩 *Slot:* {slot_md}\n" if slot_md else "")
-        + f"📆 *Ngày Bắt đầu:* {ngay_bat_dau_md}\n"
-        f"⏳ *Thời hạn:* {so_ngay_md} ngày\n"
-        f"📅 *Ngày Hết hạn:* {ngay_het_han_md}\n"
-        f"💵 *Giá bán:* {gia_ban_md}\n"
-        + (f"🗒️ *Ghi chú:* {note_md}\n" if note_md else "")
-        + f"\n━━━━━━ 👤 ━━━━━━\n\n"
-        f"👤 *THÔNG TIN KHÁCH HÀNG*\n"
-        f"🔸 *Tên Khách Hàng:* {khach_hang_md}\n"
-        + (f"🔗 *Thông Tin Liên hệ:* {link_khach_md}\n" if link_khach_md else "")
-        + f"\n━━━━━━ 💳 ━━━━━━\n\n"
-        f"📢 *HƯỚNG DẪN THANH TOÁN*\n"
-        f"📢 *STK:* 9183400998\n"
-        f"📢 *Tên:* NGO LE NGOC HUNG\n"
-        f"📢 *Nội dung:* Thanh toán `{ma_don_md}`\n"
-        f"{escape_mdv2('Vui lòng chuyển khoản đúng nội dung và số tiền.')}\n\n"
-        f"🙏 *{escape_mdv2('Cảm ơn quý khách đã tin tưởng và ủng hộ!')}* ✨"
-    )
-    await context.bot.send_photo(chat_id=chat_id, photo=qr_url, caption=caption, parse_mode="MarkdownV2")
-
-    await show_main_selector(update, context, edit=False)
-    return await end_add(update, context, success=True)
+        # Bắt các lỗi không mong muốn (ví dụ: gửi ảnh lỗi)
+        logger.error(f"Lỗi không mong muốn trong hoan_tat_don: {e}")
+        await context.bot.send_message(chat_id, f"Đã có lỗi xảy ra khi hoàn tất đơn: {e}")
+    
+    finally:
+        # **QUAN TRỌNG**: Khối này LUÔN LUÔN được thực thi, đảm bảo bot không bị treo
+        return await end_add(update, context, success=True)
 
 
 async def end_add(update: Update, context: ContextTypes.DEFAULT_TYPE, success: bool = True) -> int:
