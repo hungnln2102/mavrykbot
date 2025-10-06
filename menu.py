@@ -87,7 +87,7 @@ async def show_main_selector(
         ],
         [
             InlineKeyboardButton("⏰ Đơn Đến Hạn", callback_data="expired"),
-            InlineKeyboardButton("❌ Đóng", callback_data="close_menu"),
+            InlineKeyboardButton("⬅️ Về menu chính", callback_data="back_to_menu"),
         ],
     ]
     markup = InlineKeyboardMarkup(keyboard)
@@ -99,7 +99,6 @@ async def show_main_selector(
     try:
         if q:
             await q.answer()
-            # Nếu bản gốc là text -> edit; nếu là media -> xoá và gửi mới
             if getattr(msg, "text", None):
                 await msg.edit_text(body, reply_markup=markup, parse_mode="Markdown")
             else:

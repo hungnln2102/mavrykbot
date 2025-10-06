@@ -68,17 +68,12 @@ SHEETS = {
 
 # ====== NHẬP HÀNG ======
 IMPORT_COLUMNS = {
-    "ID_DON_HANG": 0,
-    "SAN_PHAM": 1,
-    "THONG_TIN": 2,
-    "SLOT": 3,
-    "NGAY_DANG_KY": 4,
-    "SO_NGAY": 5,
-    "HET_HAN": 6,
-    "CON_LAI": 7,
-    "NGUON": 8,
-    "GIA_NHAP": 9,
-    "GIA_TRI_CON_LAI": 10,
-    "TINH_TRANG": 11,
-    "CHECK": 12
+    "THOI_GIAN": 0,
+    "MA_PHIEU": 1,
+    "TEN_SAN_PHAM": 2,
+    "MA_SAN_PHAM": 3,
+    "NGUON": 4,
+    "SO_LUONG": 5,
+    "GIA_NHAP": 6,
+    "GHI_CHU": 7
 }

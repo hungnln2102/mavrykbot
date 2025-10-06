@@ -91,7 +91,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'back_to_menu':
         await show_outer_menu(update, context)
     elif query.data == 'delete':
-        return  # ConversationHandler sẽ tự xử lý
+        return
 
 
 async def handle_webhook(request):
