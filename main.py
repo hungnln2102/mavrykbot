@@ -13,6 +13,7 @@ from create_qrcode import qr_conversation
 from add_order import get_add_order_conversation_handler, start_add, cancel_add
 from update_order import get_update_order_conversation_handler
 from refund import get_refund_conversation_handler
+from import_order import get_import_order_conversation_handler
 from View_order_unpaid import (
     view_unpaid_orders,
     show_unpaid_order,
@@ -134,6 +135,7 @@ async def main():
     application.add_handler(get_add_order_conversation_handler())
     application.add_handler(get_update_order_conversation_handler())
     application.add_handler(qr_conversation)
+    application.add_handler(get_import_order_conversation_handler())
 
     # === 3. CALLBACK QUERY HANDLERS (XỬ LÝ NÚT BẤM) ===
     application.add_handler(CallbackQueryHandler(button_callback, pattern=r'^(menu_shop|expired|back_to_menu|delete)$'))
