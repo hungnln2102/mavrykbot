@@ -5,7 +5,8 @@ SHEETS = {
     "SUPPLY": "Thông Tin Nguồn",
     "RECEIPT": "Biên Lai Thanh Toán",
     "REFUND": "Hoàn Tiền",
-    "BANK_LIST": "Bank_List"  # Thêm sheet quản lý ngân hàng
+    "BANK_LIST": "Bank_List",
+    "IMPORT": "Bảng Nhập Hàng",
 }
 
 ORDER_COLUMNS = {
@@ -58,4 +59,26 @@ REFUND_COLUMNS = {
     "MA_DON_HANG": 0,        # A
     "NGAY_THANH_TOAN": 1,    # B
     "SO_TIEN": 2             # C
+}
+
+SHEETS = {
+    "ORDER": "Bảng Đơn Hàng",
+    "IMPORT": "Bảng Nhập Hàng",   # thêm
+}
+
+# ====== NHẬP HÀNG ======
+IMPORT_COLUMNS = {
+    "ID_DON_HANG": 0,
+    "SAN_PHAM": 1,
+    "THONG_TIN": 2,
+    "SLOT": 3,
+    "NGAY_DANG_KY": 4,
+    "SO_NGAY": 5,
+    "HET_HAN": 6,
+    "CON_LAI": 7,
+    "NGUON": 8,
+    "GIA_NHAP": 9,
+    "GIA_TRI_CON_LAI": 10,
+    "TINH_TRANG": 11,
+    "CHECK": 12
 }
