@@ -1,5 +1,3 @@
-# add_order.py (Hoàn thiện cuối cùng)
-
 import logging
 import re
 import asyncio
@@ -19,7 +17,6 @@ from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
-# Các trạng thái của Conversation
 (STATE_CHON_LOAI_KHACH, STATE_NHAP_TEN_SP, STATE_CHON_MA_SP, STATE_NHAP_MA_MOI, 
  STATE_CHON_NGUON, STATE_NHAP_NGUON_MOI, STATE_NHAP_GIA_NHAP, STATE_NHAP_THONG_TIN, 
  STATE_NHAP_TEN_KHACH, STATE_NHAP_LINK_KHACH, STATE_NHAP_SLOT, 
@@ -45,7 +42,6 @@ def extract_days_from_ma_sp(ma_sp: str) -> int:
     return 0
 
 def tinh_ngay_het_han(ngay_bat_dau_str, so_ngay_dang_ky):
-    """Sử dụng logic tính ngày chuẩn, có trừ 1 ngày."""
     try:
         ngay_bat_dau = datetime.strptime(ngay_bat_dau_str, "%d/%m/%Y")
         
@@ -56,7 +52,6 @@ def tinh_ngay_het_han(ngay_bat_dau_str, so_ngay_dang_ky):
         so_thang = so_ngay_con_lai // 30
         so_ngay_du = so_ngay_con_lai % 30
         
-        # Sử dụng logic chuẩn: days=so_ngay_du - 1
         ngay_het_han = ngay_bat_dau + relativedelta(
             years=so_nam,
             months=so_thang,
@@ -66,7 +61,7 @@ def tinh_ngay_het_han(ngay_bat_dau_str, so_ngay_dang_ky):
         return ngay_het_han.strftime("%d/%m/%Y")
     except (ValueError, TypeError) as e:
         logger.error(f"[LỖI TÍNH NGÀY]: {e}")
-        return "" # Trả về chuỗi rỗng nếu có lỗi
+        return ""
 
 # --- Các hàm xử lý của Conversation ---
 
@@ -144,13 +139,11 @@ async def nhap_ten_sp_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     # --- THAY ĐỔI LOGIC CHIA CỘT TẠI ĐÂY ---
     product_keys = list(grouped.keys())
     num_products = len(product_keys)
-    # Tự động quyết định số cột dựa trên số lượng sản phẩm
     num_columns = 3 if num_products > 9 else 2
     
     keyboard, row = [], []
     for ma_sp in product_keys:
         row.append(InlineKeyboardButton(text=ma_sp, callback_data=f"chon_ma|{ma_sp}"))
-        # Điều kiện chia cột được thay bằng biến động
         if len(row) == num_columns:
             keyboard.append(row)
             row = []
@@ -293,7 +286,6 @@ async def nhap_note_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     else: context.user_data["note"] = update.message.text.strip(); await update.message.delete()
     return await hoan_tat_don(update, context)
 
-# --- Hàm tính toán ---
 def tinh_ngay_het_han(ngay_bat_dau_str, so_ngay_dang_ky):
     """Sử dụng logic tính ngày chuẩn, có trừ 1 ngày."""
     try:
@@ -319,39 +311,27 @@ def tinh_ngay_het_han(ngay_bat_dau_str, so_ngay_dang_ky):
         return ""
 
 async def end_add(update: Update, context: ContextTypes.DEFAULT_TYPE, success: bool = True) -> int:
-    # Hàm giả định để code chạy được, bạn hãy dùng hàm gốc của mình
     context.user_data.clear()
     return ConversationHandler.END
 
-# --- PHIÊN BẢN HOÀN CHỈNH CỦA HÀM ---
-
 async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """
-    Tổng hợp dữ liệu, ghi vào Google Sheet và gửi tóm tắt.
-    Đã thêm try...finally để chống treo bot khi gửi tin nhắn kết quả.
-    """
     query = update.callback_query
     chat_id = query.message.chat.id if query else update.effective_chat.id
     main_message_id = context.user_data.get('main_message_id')
-    
-    # Gửi tin nhắn chờ
+
     if main_message_id:
         await context.bot.edit_message_text(
             chat_id=chat_id,
             message_id=main_message_id,
             text="⏳ Đang hoàn tất đơn hàng, vui lòng chờ..."
         )
-
-    # --- Bắt đầu khối xử lý chính ---
     try:
-        # 1. Thu thập và tính toán dữ liệu
         info = context.user_data
         ngay_bat_dau_str = datetime.now().strftime("%d/%m/%Y")
         so_ngay = info.get("so_ngay", "0")
         gia_ban_value = info.get("gia_ban_value", 0)
         ngay_het_han = tinh_ngay_het_han(ngay_bat_dau_str, so_ngay)
 
-        # 2. Ghi dữ liệu vào Google Sheet
         try:
             sheet = connect_to_sheet().worksheet(SHEETS["ORDER"])
             next_row = len(sheet.col_values(1)) + 1
@@ -372,7 +352,6 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             row_data[ORDER_COLUMNS["GHI_CHU"]]         = info.get("note", "")
             row_data[ORDER_COLUMNS["CHECK"]]           = "" 
 
-            # --- Tạo công thức tự động ---
             col_HH = _col_letter(ORDER_COLUMNS["HET_HAN"])
             col_CL = _col_letter(ORDER_COLUMNS["CON_LAI"])
             col_SN = _col_letter(ORDER_COLUMNS["SO_NGAY"])
@@ -382,18 +361,14 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             row_data[ORDER_COLUMNS["CON_LAI"]] = f'=IF(ISBLANK({col_HH}{next_row}); ""; {col_HH}{next_row}-TODAY())'
             row_data[ORDER_COLUMNS["GIA_TRI_CON_LAI"]] = f'=IF(OR({col_SN}{next_row}="";{col_SN}{next_row}=0); 0; IFERROR({col_GB}{next_row}/{col_SN}{next_row}*{col_CL}{next_row}; 0))'
             row_data[ORDER_COLUMNS["TINH_TRANG"]] = f'=IF({col_CL}{next_row}<=0; "Hết Hạn"; IF({col_CK}{next_row}=TRUE; "Đã Thanh Toán"; "Chưa Thanh Toán"))'
-            
-            # Cập nhật vào sheet
             end_col_letter = _col_letter(len(ORDER_COLUMNS) - 1)
             sheet.update(f"A{next_row}:{end_col_letter}{next_row}", [row_data], value_input_option='USER_ENTERED')
 
         except Exception as e:
             error_message = escape_mdv2(f"❌ Lỗi khi ghi đơn hàng vào Google Sheet: {e}")
             await context.bot.edit_message_text(chat_id=chat_id, message_id=main_message_id, text=error_message, parse_mode="MarkdownV2")
-            # Thoát sớm nếu không ghi được vào sheet
             return await end_add(update, context, success=False)
 
-        # 3. Gửi tóm tắt và ảnh QR cho người dùng
         ma_don_final = info.get('ma_don','')
         qr_url = f"https://img.vietqr.io/image/VPB-9183400998-compact2.png?amount={gia_ban_value}&addInfo={requests.utils.quote(ma_don_final)}&accountName=NGO LE NGOC HUNG"
 
@@ -413,20 +388,15 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             f"📢 *Nội dung:* Thanh toán `{escape_mdv2(ma_don_final)}`"
         )
         
-        # Xóa tin nhắn chờ và gửi ảnh QR
         await context.bot.delete_message(chat_id=chat_id, message_id=main_message_id)
         await context.bot.send_photo(chat_id=chat_id, photo=qr_url, caption=caption, parse_mode="MarkdownV2")
         await show_main_selector(update, context, edit=False)
 
     except Exception as e:
-        # Bắt các lỗi không mong muốn (ví dụ: gửi ảnh lỗi)
         logger.error(f"Lỗi không mong muốn trong hoan_tat_don: {e}")
         await context.bot.send_message(chat_id, f"Đã có lỗi xảy ra khi hoàn tất đơn: {e}")
-    
     finally:
-        # **QUAN TRỌNG**: Khối này LUÔN LUÔN được thực thi, đảm bảo bot không bị treo
         return await end_add(update, context, success=True)
-
 
 async def end_add(update: Update, context: ContextTypes.DEFAULT_TYPE, success: bool = True) -> int:
     query = update.callback_query

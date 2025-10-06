@@ -1,5 +1,3 @@
-# import_order.py (Hoàn chỉnh)
-
 import logging
 import re
 from datetime import datetime
@@ -16,7 +14,6 @@ from menu import show_main_selector
 
 logger = logging.getLogger(__name__)
 
-# Các trạng thái của luồng conversation
 (STATE_ASK_NAME, STATE_PICK_CODE, STATE_NEW_CODE, STATE_PICK_SOURCE, 
  STATE_NEW_SOURCE, STATE_NHAP_GIA_NHAP_MOI, STATE_NHAP_THONG_TIN, 
  STATE_NHAP_SLOT, STATE_CONFIRM) = range(9)
@@ -79,8 +76,8 @@ def get_price_data() -> list:
     except Exception as e:
         logger.error(f"Lỗi khi tải bảng giá: {e}"); return []
 
-# ====== CÁC HÀM TẠO BÀN PHÍM (KEYBOARDS) ======
 def kbd_cancel() -> InlineKeyboardMarkup: return InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="imp_cancel")]])
+
 def kbd_codes(cands: list[str]) -> InlineKeyboardMarkup:
     num_products = len(cands)
     num_columns = 3 if num_products > 9 else 2
@@ -92,6 +89,7 @@ def kbd_codes(cands: list[str]) -> InlineKeyboardMarkup:
     rows.append([InlineKeyboardButton("✏️ Nhập Mã Mới", callback_data="imp_new_code")])
     rows.append([InlineKeyboardButton("🔙 Quay lại", callback_data="imp_cancel")])
     return InlineKeyboardMarkup(rows)
+
 def kbd_sources(srcs: list[dict]) -> InlineKeyboardMarkup:
     rows, row = [], []
     for source_info in srcs:
@@ -108,6 +106,7 @@ def kbd_sources(srcs: list[dict]) -> InlineKeyboardMarkup:
     rows.append([InlineKeyboardButton("➕ Nguồn Mới", callback_data="imp_new_src")])
     rows.append([InlineKeyboardButton("🔙 Quay lại", callback_data="imp_cancel")])
     return InlineKeyboardMarkup(rows)
+
 def kbd_confirm() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("💾 Lưu Đơn Hàng", callback_data="imp_save")],
@@ -227,10 +226,8 @@ async def nhap_slot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     else:
         context.user_data['imp']['slot'] = update.message.text.strip()
         await update.message.delete()
-    
     context.user_data['imp']['qty'] = "1"
     context.user_data['imp']['note'] = ""
-    
     summary = fmt_summary(context.user_data['imp'])
     await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=context.user_data.get('main_message_id'), text=summary, parse_mode="MarkdownV2", reply_markup=kbd_confirm())
     return STATE_CONFIRM
@@ -248,7 +245,6 @@ async def on_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             ngay_bat_dau_str = datetime.now().strftime("%d/%m/%Y")
             so_ngay = payload.get("so_ngay", "0")
             ngay_het_han = tinh_ngay_het_han(ngay_bat_dau_str, so_ngay) if int(so_ngay) > 0 else ""
-            
             row_data = [""] * len(IMPORT_COLUMNS)
             row_data[IMPORT_COLUMNS["ID_DON_HANG"]] = payload.get("voucher", "")
             row_data[IMPORT_COLUMNS["SAN_PHAM"]] = payload.get("code", "")
@@ -260,20 +256,17 @@ async def on_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             row_data[IMPORT_COLUMNS["NGUON"]] = payload.get("source", "")
             row_data[IMPORT_COLUMNS["GIA_NHAP"]] = payload.get("cost", "")
             row_data[IMPORT_COLUMNS["CHECK"]] = ""
-            
             col_CL = _col_letter(IMPORT_COLUMNS["CON_LAI"])
             col_HH = _col_letter(IMPORT_COLUMNS["HET_HAN"])
             col_SN = _col_letter(IMPORT_COLUMNS["SO_NGAY_DA_DANG_KY"])
             col_GN = _col_letter(IMPORT_COLUMNS["GIA_NHAP"])
             col_CK = _col_letter(IMPORT_COLUMNS["CHECK"])
-            
             if int(so_ngay) > 0:
                 row_data[IMPORT_COLUMNS["CON_LAI"]] = f'=IF(ISBLANK({col_HH}{next_row}); ""; {col_HH}{next_row}-TODAY())'
                 row_data[IMPORT_COLUMNS["GIA_TRI_CON_LAI"]] = f'=IFERROR({col_GN}{next_row}/{col_SN}{next_row}*{col_CL}{next_row}; 0)'
                 row_data[IMPORT_COLUMNS["TINH_TRANG"]] = f'=IF({col_CL}{next_row}<=0; "Hết Hạn"; IF({col_CK}{next_row}=TRUE; "Đã Thanh Toán"; "Chưa Thanh Toán"))'
             else:
                 row_data[IMPORT_COLUMNS["TINH_TRANG"]] = "Không thời hạn"
-
             sheet.update(f"A{next_row}:{_col_letter(len(IMPORT_COLUMNS)-1)}{next_row}", [row_data], value_input_option='USER_ENTERED')
             await query.edit_message_text("✅ Đã lưu đơn hàng thành công\\.", parse_mode="MarkdownV2")
             await show_main_selector(update, context, edit=False)

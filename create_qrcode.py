@@ -1,4 +1,3 @@
-# create_qrcode.py (An toàn caption + gửi ảnh bytes)
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes, ConversationHandler, CallbackQueryHandler, MessageHandler, filters
@@ -14,11 +13,9 @@ from menu import show_outer_menu
 
 logger = logging.getLogger(__name__)
 
-# Các trạng thái
 ASK_AMOUNT, ASK_NOTE = range(2)
 
 def _fmt_vnd(amount: int) -> str:
-    # 1234567 -> '1.234.567'
     return f"{amount:,}".replace(",", ".")
 
 async def handle_create_qr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -26,7 +23,6 @@ async def handle_create_qr(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     query = update.callback_query
     await query.answer()
 
-    # Lưu message_id để edit (UX tốt, không tạo tin nhắn mới)
     context.user_data['qr_message_id'] = query.message.message_id
 
     keyboard = [[InlineKeyboardButton("❌ Hủy", callback_data="cancel_qr")]]
@@ -40,7 +36,6 @@ async def handle_create_qr(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def ask_qr_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Xử lý số tiền và hỏi nội dung chuyển khoản."""
     amount_raw = update.message.text or ""
-    # Xóa tin nhắn của người dùng cho gọn
     try:
         await update.message.delete()
     except Exception:
@@ -49,7 +44,6 @@ async def ask_qr_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     try:
         sanitized_text = amount_raw.strip().replace(',', '.')
         numeric_value = float(sanitized_text)
-        # Người dùng nhập '250' nghĩa là 250k
         amount_vnd = int(numeric_value * 1000)
         if amount_vnd <= 0:
             raise ValueError("non-positive amount")
@@ -67,7 +61,6 @@ async def ask_qr_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         )
         return ASK_AMOUNT
 
-    # Hỏi nội dung thanh toán
     await context.bot.edit_message_text(
         chat_id=update.effective_chat.id,
         message_id=context.user_data['qr_message_id'],
@@ -80,7 +73,6 @@ async def ask_qr_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 async def send_qr_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Tạo & gửi ảnh QR, sau đó quay về menu chính và kết thúc."""
     note = (update.message.text or "").strip()
-    # Xóa tin nhắn người dùng
     try:
         await update.message.delete()
     except Exception:
@@ -88,12 +80,10 @@ async def send_qr_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     amount_vnd = int(context.user_data.get("qr_amount", 0))
 
-    # Encode an toàn cho tham số URL
     note_encoded = quote_plus(note)
     account_name = "NGO LE NGOC HUNG"
     account_name_encoded = quote_plus(account_name)
 
-    # VietQR PNG URL
     qr_url = (
         "https://img.vietqr.io/image/VPB-9183400998-compact2.png"
         f"?amount={amount_vnd}"
@@ -101,7 +91,6 @@ async def send_qr_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         f"&accountName={account_name_encoded}"
     )
 
-    # Tải ảnh về bytes để Telegram không phải đi lấy từ ngoài (tránh 400)
     buf = BytesIO()
     try:
         resp = requests.get(qr_url, timeout=15)
@@ -113,12 +102,10 @@ async def send_qr_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await update.effective_chat.send_message(
             "❌ Không tạo được ảnh QR lúc này. Vui lòng thử lại sau."
         )
-        # Quay về menu
         await show_outer_menu(update, context)
         context.user_data.clear()
         return ConversationHandler.END
 
-    # Caption dùng HTML (an toàn ký tự đặc biệt)
     note_safe = htmlmod.escape(note)
     caption_html = (
         "<b>Thông tin chuyển khoản</b>\n"
@@ -131,7 +118,6 @@ async def send_qr_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         "Cảm ơn quý khách đã tin tưởng dịch vụ!"
     )
 
-    # Xóa message hướng dẫn (nếu còn)
     main_message_id = context.user_data.get('qr_message_id')
     if main_message_id:
         try:
@@ -142,7 +128,6 @@ async def send_qr_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         except Exception as e:
             logger.warning("Không thể xóa tin nhắn tạo QR: %s", e)
 
-    # Gửi ảnh từ bytes + caption HTML
     try:
         await update.effective_chat.send_photo(
             photo=buf,
@@ -154,11 +139,7 @@ async def send_qr_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await update.effective_chat.send_message(
             "❌ Gửi QR thất bại (caption/ảnh). Vui lòng thử lại."
         )
-
-    # Quay về menu
     await show_outer_menu(update, context)
-
-    # Dọn dẹp
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -170,7 +151,6 @@ async def cancel_qr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await show_outer_menu(update, context)
     return ConversationHandler.END
 
-# ConversationHandler
 qr_conversation = ConversationHandler(
     entry_points=[CallbackQueryHandler(handle_create_qr, pattern='^create_qr$')],
     states={

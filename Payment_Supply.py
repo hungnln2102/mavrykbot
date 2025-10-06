@@ -15,34 +15,27 @@ import urllib.parse
 
 logger = logging.getLogger(__name__)
 
-# --- CÁC HÀM TIỆN ÍCH ---
-
 def load_bank_map() -> dict:
     """Tải danh sách ngân hàng từ sheet 'Bank_List' và chuyển thành dictionary."""
     try:
         spreadsheet = connect_to_sheet()
         bank_sheet = spreadsheet.worksheet(SHEETS["BANK_LIST"])
-        # Lấy tất cả các hàng, bỏ qua hàng tiêu đề (hàng đầu tiên)
         records = bank_sheet.get_all_values()[1:]
-        # Tạo dictionary với key là BIN (cột 1) và value là BankName (cột 2)
         return {row[0].strip(): row[1].strip() for row in records if row and row[0]}
     except Exception as e:
         logger.error(f"Không thể tải danh sách ngân hàng từ Google Sheets: {e}")
-        return {} # Trả về dictionary rỗng nếu có lỗi
+        return {}
 
 def escape_mdv2(text: str) -> str:
-    """Escape ký tự đặc biệt cho MarkdownV2."""
     if not isinstance(text, str): text = str(text)
     escape_chars = r'_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
 def clean_price_string(price_str: str) -> str:
-    """Làm sạch chuỗi giá tiền."""
     if not isinstance(price_str, str): price_str = str(price_str)
     return price_str.replace(",", "").replace(".", "").replace("đ", "").replace("₫", "").strip()
 
 def build_qr_url(stk: str, bank_code: str, amount, note: str) -> str:
-    """Tạo URL ảnh QR thanh toán VietQR (dùng trực tiếp acqId từ sheet)."""
     try:
         amount_int = int(clean_price_string(amount))
         note_encoded = urllib.parse.quote(note.strip())
@@ -51,7 +44,6 @@ def build_qr_url(stk: str, bank_code: str, amount, note: str) -> str:
         raise ValueError(f"Tổng tiền không hợp lệ: {amount}")
 
 def fetch_qr_image_bytes(url: str) -> bytes:
-    """Tải ảnh QR từ URL và trả về bytes."""
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
@@ -62,7 +54,6 @@ def fetch_qr_image_bytes(url: str) -> bytes:
         raise ValueError(f"Lỗi khi tải ảnh QR: {e}")
 
 def get_current_time_column(header: list):
-    """Tìm cột thời gian bao gồm ngày hôm nay."""
     today = datetime.now().date()
     for idx, val in enumerate(header):
         if "/" in val and "-" in val:
@@ -77,7 +68,6 @@ def get_current_time_column(header: list):
     return None, None
 
 def calculate_actual_sum(ten_nguon: str, order_data_cache: list) -> int:
-    """Tính tổng GIÁ NHẬP, chỉ tính đơn có Check=false."""
     total = 0
     target_nguon = ten_nguon.strip().lower().lstrip('@')
     for row in order_data_cache[1:]:
@@ -92,10 +82,7 @@ def calculate_actual_sum(ten_nguon: str, order_data_cache: list) -> int:
             continue
     return total
 
-# --- CÁC HÀM XỬ LÝ CHÍNH ---
-
 async def show_source_payment(update: Update, context: ContextTypes.DEFAULT_TYPE, index: int = 0):
-    """Hiển thị thông tin thanh toán với điều hướng tuyến tính."""
     query = update.callback_query
     if query:
         await query.answer()
@@ -179,8 +166,6 @@ async def show_source_payment(update: Update, context: ContextTypes.DEFAULT_TYPE
     if actual_sum != expected_sum:
         actual_sum_formatted = f"{actual_sum:,} đ"
         caption += f"\n\n⚠️ *Lưu ý:* Tổng giá nhập thực tế là `{escape_mdv2(actual_sum_formatted)}`, không khớp với số tiền cần thanh toán."
-
-    # Chuẩn bị ảnh QR hoặc fallback
     try:
         qr_url = build_qr_url(stk, bank_code, tong_tien_expected_str, ten_nguon)
         logger.info(f"QR URL tạo ra: {qr_url}")
@@ -232,7 +217,6 @@ async def show_source_payment(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def handle_source_paid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Xử lý thanh toán, cập nhật sheet và hiển thị item tiếp theo."""
     query = update.callback_query
     await query.answer("Đang xử lý...", show_alert=False)
     index = int(query.data.split("|")[1])
@@ -315,7 +299,6 @@ async def handle_source_paid(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def handle_source_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Điều hướng tuyến tính giữa các nguồn."""
     query = update.callback_query
     action, index_str = query.data.split("|")
     index = int(index_str)
@@ -327,7 +310,6 @@ async def handle_source_navigation(update: Update, context: ContextTypes.DEFAULT
 
 
 async def handle_exit_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Dọn dẹp context và quay về menu chính."""
     query = update.callback_query
     await query.answer()
     for key in list(context.user_data.keys()):

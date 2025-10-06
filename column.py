@@ -10,55 +10,55 @@ SHEETS = {
 }
 
 ORDER_COLUMNS = {
-    "ID_DON_HANG": 0,            # A
-    "SAN_PHAM": 1,               # B
-    "THONG_TIN_DON": 2,          # C
-    "TEN_KHACH": 3,              # D
-    "LINK_KHACH": 4,             # E
-    "SLOT": 5,                   # F
-    "NGAY_DANG_KY": 6,           # G
-    "SO_NGAY": 7,                # H
-    "HET_HAN": 8,                # I
-    "CON_LAI": 9,                # J
-    "NGUON": 10,                 # K
-    "GIA_NHAP": 11,              # L
-    "GIA_BAN": 12,               # M
-    "GIA_TRI_CON_LAI": 13,       # N
-    "NOTE": 14,                  # O
-    "TINH_TRANG": 15,            # P
-    "CHECK": 16                  # Q
+    "ID_DON_HANG": 0,
+    "SAN_PHAM": 1,
+    "THONG_TIN_DON": 2,
+    "TEN_KHACH": 3,
+    "LINK_KHACH": 4,
+    "SLOT": 5,
+    "NGAY_DANG_KY": 6,
+    "SO_NGAY": 7,
+    "HET_HAN": 8,
+    "CON_LAI": 9,
+    "NGUON": 10,
+    "GIA_NHAP": 11,
+    "GIA_BAN": 12,
+    "GIA_TRI_CON_LAI": 13,
+    "NOTE": 14,
+    "TINH_TRANG": 15,
+    "CHECK": 16
 }
 
 # ====== BẢNG GIÁ ======
 PRICE_COLUMNS = {
-    "TEN_SAN_PHAM": 0,       # A
-    "MA_SAN_PHAM": 1,        # B
-    "NGUON": 2,              # C
-    "GIA_NHAP": 3,           # D
-    "GIA_BAN_CTV": 4,        # E
-    "GIA_BAN_LE": 5          # F
+    "TEN_SAN_PHAM": 0,
+    "MA_SAN_PHAM": 1,
+    "NGUON": 2,
+    "GIA_NHAP": 3,
+    "GIA_BAN_CTV": 4,
+    "GIA_BAN_LE": 5
 }
 
 # ====== THÔNG TIN NGUỒN ======
 SUPPLY_COLUMNS = {
-    "TEN_NGUON": 0,              # A
-    "THONG_TIN_THANH_TOAN": 1,   # B (Cột này chứa cả STK và mã BIN)
-    "CHU_TK": 2,                 # C
-    "NGAN_HANG": 3               # D
+    "TEN_NGUON": 0,
+    "THONG_TIN_THANH_TOAN": 1,
+    "CHU_TK": 2,
+    "NGAN_HANG": 3
 }
 
 # ====== BIÊN LAI THANH TOÁN ======
 RECEIPT_COLUMNS = {
-    "THOI_GIAN": 0,          # A
-    "TEN_NGUON": 1,          # B
-    "TONG_TIEN": 2           # C
+    "THOI_GIAN": 0,
+    "TEN_NGUON": 1,
+    "TONG_TIEN": 2
 }
 
 # ====== HOÀN TIỀN ======
 REFUND_COLUMNS = {
-    "MA_DON_HANG": 0,        # A
-    "NGAY_THANH_TOAN": 1,    # B
-    "SO_TIEN": 2             # C
+    "MA_DON_HANG": 0,
+    "NGAY_THANH_TOAN": 1,
+    "SO_TIEN": 2
 }
 
 # ====== NHẬP HÀNG ======

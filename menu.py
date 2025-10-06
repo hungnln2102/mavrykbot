@@ -6,12 +6,7 @@ import logging
 ADMIN_USER_IDS = [510811276]
 logger = logging.getLogger(__name__)
 
-# Menu ngoài cùng: Chọn phân hệ
 async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Hiển thị menu chính. Tự động xử lý việc edit tin nhắn văn bản
-    hoặc thay thế tin nhắn media.
-    """
     keyboard = [
         [
             InlineKeyboardButton("👤 Đơn Chưa Thanh Toán", callback_data='unpaid_orders'),
@@ -27,12 +22,9 @@ async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     message_text = "🔽 *Chọn phân hệ làm việc:*"
-
     query = update.callback_query
-    
     try:
         if query:
-            # Nếu tin nhắn gốc là tin nhắn văn bản, ta chỉ cần edit nó.
             if query.message.text:
                 logger.info("🔹 show_outer_menu: Editing text message.")
                 await query.edit_message_text(
@@ -40,7 +32,6 @@ async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=reply_markup,
                     parse_mode='Markdown'
                 )
-            # Nếu tin nhắn gốc là media (hình ảnh), ta phải xóa và gửi mới.
             else:
                 logger.info("🔹 show_outer_menu: Replacing media message with text menu.")
                 await query.message.delete()
@@ -49,7 +40,6 @@ async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=reply_markup,
                     parse_mode='Markdown'
                 )
-        # Nếu người dùng gõ lệnh /start hoặc /menu
         elif update.message:
             logger.info("🔹 show_outer_menu: Sending new menu message.")
             await update.message.reply_text(
@@ -58,7 +48,6 @@ async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown'
             )
     except telegram.error.BadRequest as e:
-        # Giữ lại khối except này như một lớp bảo vệ cuối cùng cho các lỗi không lường trước
         logger.error(f"❌ Lỗi không mong muốn trong show_outer_menu: {e}")
         try:
             await update.effective_chat.send_message(
@@ -69,8 +58,6 @@ async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as final_e:
             logger.critical(f"💣 Không thể gửi menu cho người dùng: {final_e}")
 
-
-# Menu SHOP: gồm 5 nút chia thành 3 hàng
 async def show_main_selector(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -91,11 +78,9 @@ async def show_main_selector(
         ],
     ]
     markup = InlineKeyboardMarkup(keyboard)
-
     q = update.callback_query
     msg = q.message if q else update.effective_message
     body = text or "👉 Chọn chức năng:"
-
     try:
         if q:
             await q.answer()
