@@ -71,14 +71,19 @@ async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # Menu SHOP: gồm 5 nút chia thành 3 hàng
-async def show_main_selector(update, context, edit=True):
+async def show_main_selector(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    edit: bool = False,
+    text: str | None = None,
+) -> None:
     keyboard = [
         [
             InlineKeyboardButton("📝 Thêm Đơn", callback_data="add"),
             InlineKeyboardButton("🔄 Xem/Chỉnh Đơn", callback_data="update"),
         ],
         [
-            InlineKeyboardButton("📥 Nhập Hàng", callback_data="nhap_hang"),  # 🆕 nút vào flow nhập hàng
+            InlineKeyboardButton("📥 Nhập Hàng", callback_data="nhap_hang"),
         ],
         [
             InlineKeyboardButton("⏰ Đơn Đến Hạn", callback_data="expired"),
@@ -87,31 +92,21 @@ async def show_main_selector(update, context, edit=True):
     ]
     markup = InlineKeyboardMarkup(keyboard)
 
-    if getattr(update, "callback_query", None):
-        await update.callback_query.answer()
-        await update.callback_query.edit_message_text("Chọn chức năng:", reply_markup=markup)
-    else:
-        await update.message.reply_text("Chọn chức năng:", reply_markup=markup)
+    q = update.callback_query
+    msg = q.message if q else update.effective_message
+    body = text or "👉 Chọn chức năng:"
 
     try:
-        if update.callback_query and edit:
-            logger.info("🔄 show_main_selector: edit_message_text")
-            await update.callback_query.edit_message_text(
-                text=message,
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
+        if q:
+            await q.answer()
+            # Nếu bản gốc là text -> edit; nếu là media -> xoá và gửi mới
+            if getattr(msg, "text", None):
+                await msg.edit_text(body, reply_markup=markup, parse_mode="Markdown")
+            else:
+                await msg.delete()
+                await msg.chat.send_message(body, reply_markup=markup, parse_mode="Markdown")
         else:
-            logger.info("✉️ show_main_selector: send_message")
-            await update.effective_chat.send_message(
-                text=message,
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
+            await msg.reply_text(body, reply_markup=markup, parse_mode="Markdown")
     except telegram.error.BadRequest as e:
-        logger.warning(f"❌ Lỗi trong show_main_selector: {e}")
-        await update.effective_chat.send_message(
-            text=message,
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+        logger.warning(f"show_main_selector BadRequest: {e}")
+        await update.effective_chat.send_message(body, reply_markup=markup, parse_mode="Markdown")
