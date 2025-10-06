@@ -63,12 +63,17 @@ REFUND_COLUMNS = {
 
 # ====== NHẬP HÀNG ======
 IMPORT_COLUMNS = {
-    "THOI_GIAN": 0,
-    "MA_PHIEU": 1,
-    "TEN_SAN_PHAM": 2,
-    "MA_SAN_PHAM": 3,
-    "NGUON": 4,
-    "SO_LUONG": 5,
-    "GIA_NHAP": 6,
-    "GHI_CHU": 7
+    "ID_DON_HANG": 0,
+    "SAN_PHAM": 1,
+    "THONG_TIN_SAN_PHAM": 2,
+    "SLOT": 3,
+    "NGAY_DANG_KY": 4,
+    "SO_NGAY_DA_DANG_KY": 5,
+    "HET_HAN": 6,
+    "CON_LAI": 7,
+    "NGUON": 8,
+    "GIA_NHAP": 9,
+    "GIA_TRI_CON_LAI": 10,
+    "TINH_TRANG": 11,
+    "CHECK": 12
 }
