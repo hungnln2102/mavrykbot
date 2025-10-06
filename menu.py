@@ -71,21 +71,27 @@ async def show_outer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # Menu SHOP: gồm 5 nút chia thành 3 hàng
-async def show_main_selector(update: Update, context: ContextTypes.DEFAULT_TYPE, edit=False):
-    logger.info(f"🔹 show_main_selector(edit={edit}) called")
-
+async def show_main_selector(update, context, edit=True):
     keyboard = [
         [
-            InlineKeyboardButton("📝 Thêm Đơn", callback_data='add'),
-            InlineKeyboardButton("🔄 Xem Đơn", callback_data='update')
+            InlineKeyboardButton("📝 Thêm Đơn", callback_data="add"),
+            InlineKeyboardButton("🔄 Xem/Chỉnh Đơn", callback_data="update"),
         ],
         [
-            InlineKeyboardButton("⏰ Đơn Đến Hạn", callback_data='expired'),
-            InlineKeyboardButton("🔚 Quay Lại Menu Chính", callback_data='back_to_menu')
-        ]
+            InlineKeyboardButton("📥 Nhập Hàng", callback_data="nhap_hang"),  # 🆕 nút vào flow nhập hàng
+        ],
+        [
+            InlineKeyboardButton("⏰ Đơn Đến Hạn", callback_data="expired"),
+            InlineKeyboardButton("❌ Đóng", callback_data="close_menu"),
+        ],
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    message = "🔽 *Chọn chức năng:*"
+    markup = InlineKeyboardMarkup(keyboard)
+
+    if getattr(update, "callback_query", None):
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text("Chọn chức năng:", reply_markup=markup)
+    else:
+        await update.message.reply_text("Chọn chức năng:", reply_markup=markup)
 
     try:
         if update.callback_query and edit:

@@ -22,6 +22,14 @@ logger = logging.getLogger(__name__)
 # =========================
 ASK_PRODUCT, ASK_SOURCE, ASK_INFO, ASK_SLOT, ASK_PRICE, ASK_DAYS, CONFIRM = range(7)
 
+def _col_letter(idx0: int) -> str:
+    n = idx0 + 1
+    s = ""
+    while n > 0:
+        n, r = divmod(n - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
 # =========================
 # Entry
 # =========================
@@ -221,19 +229,37 @@ async def confirm_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         row[IMPORT_COLUMNS["NGAY_DANG_KY"]]     = info["ngay_dk"]
         row[IMPORT_COLUMNS["SO_NGAY"]]          = info["so_ngay"]
         row[IMPORT_COLUMNS["HET_HAN"]]          = info["het_han"]
-        row[IMPORT_COLUMNS["CON_LAI"]]          = f"=IF(ISBLANK(G{next_row});\"\";G{next_row}-TODAY())"
+
+        # ==== Công thức theo mapping, không hard-code H/I/J/M ====
+        col_HET_HAN  = _col_letter(IMPORT_COLUMNS["HET_HAN"])
+        col_CON_LAI  = _col_letter(IMPORT_COLUMNS["CON_LAI"])
+        col_SO_NGAY  = _col_letter(IMPORT_COLUMNS["SO_NGAY"])
+        col_GIA_NHAP = _col_letter(IMPORT_COLUMNS["GIA_NHAP"])
+        col_CHECK    = _col_letter(IMPORT_COLUMNS["CHECK"])
+
+        # Còn Lại = Hết Hạn - TODAY()
+        row[IMPORT_COLUMNS["CON_LAI"]] = (
+            f'=IF(ISBLANK({col_HET_HAN}{next_row}); ""; {col_HET_HAN}{next_row}-TODAY())'
+        )
+
         row[IMPORT_COLUMNS["NGUON"]]            = info["nguon"]
         row[IMPORT_COLUMNS["GIA_NHAP"]]         = info["gia_nhap_value"]
-        row[IMPORT_COLUMNS["GIA_TRI_CON_LAI"]]  = f"=IF(OR(H{next_row}=\"\";H{next_row}=0);0;J{next_row}/H{next_row}*I{next_row})"
 
-        # ✅ Cập nhật công thức Tình Trạng:
+        # Giá Trị Còn Lại = (Giá nhập / Số ngày) * Còn lại   ✅ FIX
+        row[IMPORT_COLUMNS["GIA_TRI_CON_LAI"]]  = (
+            f'=IF(OR({col_SO_NGAY}{next_row}="";{col_SO_NGAY}{next_row}=0); 0; '
+            f'{col_GIA_NHAP}{next_row}/{col_SO_NGAY}{next_row}*{col_CON_LAI}{next_row})'
+        )
+
+        # Tình Trạng = IF(Còn Lại<=0; "Hết Hạn"; IF(Check=TRUE; "Đã Thanh Toán"; "Chưa Thanh Toán"))
         row[IMPORT_COLUMNS["TINH_TRANG"]] = (
-            f'=IF(H{next_row}<=0; "Hết Hạn"; IF(M{next_row}=TRUE; "Đã Thanh Toán"; "Chưa Thanh Toán"))'
+            f'=IF({col_CON_LAI}{next_row}<=0; "Hết Hạn"; '
+            f'IF({col_CHECK}{next_row}=TRUE; "Đã Thanh Toán"; "Chưa Thanh Toán"))'
         )
 
         row[IMPORT_COLUMNS["CHECK"]] = True
 
-        end_col_letter = chr(ord('A') + len(row) - 1)
+        end_col_letter = _col_letter(len(row) - 1)
         ws.update(
             f"A{next_row}:{end_col_letter}{next_row}",
             [row],

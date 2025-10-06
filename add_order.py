@@ -61,13 +61,22 @@ def tinh_ngay_het_han(ngay_bat_dau_str, so_ngay_dang_ky):
 async def start_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    context.user_data.clear() # Dọn dẹp context cũ
+    context.user_data.clear()
     context.user_data['main_message_id'] = query.message.message_id
+
     keyboard = [
-        [InlineKeyboardButton("Khách Lẻ", callback_data="le"), InlineKeyboardButton("Cộng Tác Viên", callback_data="ctv")],
-        [InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]
+        [
+            InlineKeyboardButton("Khách Lẻ", callback_data="le"),
+            InlineKeyboardButton("Cộng Tác Viên", callback_data="ctv"),
+        ],
+        [InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")],
     ]
-    await query.edit_message_text("📦 *Khởi Tạo Đơn Hàng Mới*\n\nVui lòng lựa chọn phân loại khách hàng:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+    await query.edit_message_text(
+        "📦 *Khởi Tạo Đơn Hàng Mới*\n\nVui lòng lựa chọn phân loại khách hàng:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown",
+    )
     return STATE_CHON_LOAI_KHACH
 
 async def chon_loai_khach_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -303,83 +312,101 @@ async def end_add(update: Update, context: ContextTypes.DEFAULT_TYPE, success: b
 
 async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Tổng hợp tất cả thông tin, ghi vào Google Sheet, 
-    và gửi thông báo tổng kết chi tiết cho người dùng.
+    Tổng hợp dữ liệu và ghi vào 'Bảng Đơn Hàng' theo ORDER_COLUMNS.
+    Công thức được dựng theo mapping cột -> không phụ thuộc H/J/M/Q cố định.
     """
     query = update.callback_query
     chat_id = query.message.chat.id if query else update.effective_chat.id
     main_message_id = context.user_data.get('main_message_id')
     if main_message_id:
         await context.bot.edit_message_text(
-            chat_id=chat_id, 
-            message_id=main_message_id, 
+            chat_id=chat_id,
+            message_id=main_message_id,
             text="⏳ Đang hoàn tất đơn hàng, vui lòng chờ..."
         )
-    # --- 1. Thu thập và chuẩn bị dữ liệu ---
+
     info = context.user_data
     ngay_bat_dau_str = datetime.now().strftime("%d/%m/%Y")
     so_ngay = info.get("so_ngay", "0")
     gia_ban_value = info.get("gia_ban_value", 0)
     ngay_het_han = tinh_ngay_het_han(ngay_bat_dau_str, so_ngay)
+
     try:
-        # --- 2. Ghi dữ liệu vào Google Sheet ---
         sheet = connect_to_sheet().worksheet(SHEETS["ORDER"])
         next_row = len(sheet.col_values(1)) + 1
-        
-        # Khởi tạo một hàng trống với độ dài bằng số cột đã định nghĩa
+
         row_data = [""] * len(ORDER_COLUMNS)
-        # Gán dữ liệu vào đúng vị trí cột đã định nghĩa trong `column.py`
-        row_data[ORDER_COLUMNS["ID_DON_HANG"]] = info.get("ma_don", "")
-        row_data[ORDER_COLUMNS["SAN_PHAM"]] = info.get("ma_chon", info.get("ten_san_pham_raw", ""))
-        row_data[ORDER_COLUMNS["THONG_TIN_DON"]] = info.get("thong_tin_don", "")
-        row_data[ORDER_COLUMNS["TEN_KHACH"]] = info.get("khach_hang", "")
-        row_data[ORDER_COLUMNS["LINK_KHACH"]] = info.get("link_khach", "")
-        row_data[ORDER_COLUMNS["SLOT"]] = info.get("slot", "")
-        row_data[ORDER_COLUMNS["NGAY_DANG_KY"]] = ngay_bat_dau_str
-        row_data[ORDER_COLUMNS["SO_NGAY"]] = so_ngay
-        row_data[ORDER_COLUMNS["HET_HAN"]] = ngay_het_han
-        row_data[ORDER_COLUMNS["CON_LAI"]] = f"=IF(ISBLANK(I{next_row}); \"\"; I{next_row}-TODAY())"
-        row_data[ORDER_COLUMNS["NGUON"]] = info.get("nguon", "")
-        row_data[ORDER_COLUMNS["GIA_NHAP"]] = info.get("gia_nhap_value", "")
-        row_data[ORDER_COLUMNS["GIA_BAN"]] = gia_ban_value
-        row_data[ORDER_COLUMNS["GIA_TRI_CON_LAI"]] = f"""=IF(OR(H{next_row}=""; H{next_row}=0); 0; M{next_row}/H{next_row}*J{next_row})"""
-        row_data[ORDER_COLUMNS["CHECK"]] = "" # Mặc định là trống
-        row_data[ORDER_COLUMNS["TINH_TRANG"]] = f'=IF(J{next_row}<=0; "Hết Hạn"; IF(Q{next_row}=TRUE; "Đã Thanh Toán"; "Chưa Thanh Toán"))'
-        
-        # *** DÒNG CODE ĐÃ THÊM ĐỂ SỬA LỖI ***
-        # Kiểm tra xem cột GHI_CHU có tồn tại không trước khi gán
+        row_data[ORDER_COLUMNS["ID_DON_HANG"]]     = info.get("ma_don", "")
+        row_data[ORDER_COLUMNS["SAN_PHAM"]]        = info.get("ma_chon", info.get("ten_san_pham_raw", ""))
+        row_data[ORDER_COLUMNS["THONG_TIN_DON"]]   = info.get("thong_tin_don", "")
+        row_data[ORDER_COLUMNS["TEN_KHACH"]]       = info.get("khach_hang", "")
+        row_data[ORDER_COLUMNS["LINK_KHACH"]]      = info.get("link_khach", "")
+        row_data[ORDER_COLUMNS["SLOT"]]            = info.get("slot", "")
+        row_data[ORDER_COLUMNS["NGAY_DANG_KY"]]    = ngay_bat_dau_str
+        row_data[ORDER_COLUMNS["SO_NGAY"]]         = so_ngay
+        row_data[ORDER_COLUMNS["HET_HAN"]]         = ngay_het_han
+
+        # --- Công thức Còn Lại: (HẾT_HẠN - TODAY())
+        col_HH = _col_letter(ORDER_COLUMNS["HET_HAN"])
+        col_CL = _col_letter(ORDER_COLUMNS["CON_LAI"])
+        row_data[ORDER_COLUMNS["CON_LAI"]] = f'=IF(ISBLANK({col_HH}{next_row}); ""; {col_HH}{next_row}-TODAY())'
+
+        row_data[ORDER_COLUMNS["NGUON"]]           = info.get("nguon", "")
+        row_data[ORDER_COLUMNS["GIA_NHAP"]]        = info.get("gia_nhap_value", "")
+        row_data[ORDER_COLUMNS["GIA_BAN"]]         = gia_ban_value
+
+        # --- Giá Trị Còn Lại: (GIA_BAN / SO_NGAY) * CON_LAI
+        col_SN = _col_letter(ORDER_COLUMNS["SO_NGAY"])
+        col_GB = _col_letter(ORDER_COLUMNS["GIA_BAN"])
+        row_data[ORDER_COLUMNS["GIA_TRI_CON_LAI"]] = (
+            f'=IF(OR({col_SN}{next_row}="";{col_SN}{next_row}=0); 0; '
+            f'{col_GB}{next_row}/{col_SN}{next_row}*{col_CL}{next_row})'
+        )
+
+        # --- Check & Tình Trạng
+        # CHECK thường là checkbox (TRUE/FALSE)
+        # TÌNH TRẠNG = IF(CON_LAI<=0; "Hết Hạn"; IF(CHECK=TRUE; "Đã Thanh Toán"; "Chưa Thanh Toán"))
+        col_CK = _col_letter(ORDER_COLUMNS["CHECK"])
+        row_data[ORDER_COLUMNS["CHECK"]]      = ""  # hoặc giữ trống để bạn tick sau
+        row_data[ORDER_COLUMNS["TINH_TRANG"]] = (
+            f'=IF({col_CL}{next_row}<=0; "Hết Hạn"; '
+            f'IF({col_CK}{next_row}=TRUE; "Đã Thanh Toán"; "Chưa Thanh Toán"))'
+        )
+
         if "GHI_CHU" in ORDER_COLUMNS:
             row_data[ORDER_COLUMNS["GHI_CHU"]] = info.get("note", "")
-        # Cập nhật cả hàng lên Sheet, phạm vi được xác định bằng số cột
-        sheet_range = f"A{next_row}:{chr(ord('A') + len(ORDER_COLUMNS) - 1)}{next_row}"
-        sheet.update(sheet_range, [row_data], value_input_option='USER_ENTERED')
+
+        end_col_letter = _col_letter(len(ORDER_COLUMNS) - 1)
+        sheet.update(f"A{next_row}:{end_col_letter}{next_row}", [row_data], value_input_option='USER_ENTERED')
+
     except Exception as e:
-        # Gửi thông báo lỗi chi tiết hơn
         error_message = escape_mdv2(f"❌ Đã xảy ra lỗi khi ghi đơn hàng vào Google Sheet: {e}")
         await context.bot.edit_message_text(
-            chat_id=chat_id, 
-            message_id=main_message_id, 
+            chat_id=chat_id,
+            message_id=main_message_id,
             text=error_message,
             parse_mode="MarkdownV2"
         )
         return await end_add(update, context, success=False)
-    
-    # --- 3. Gửi thông báo và mã QR cho khách hàng ---
+
+    # --- Gửi QR & tóm tắt (giữ nguyên như bạn đang dùng)
     ma_don_final = info.get('ma_don','')
     qr_url = f"https://img.vietqr.io/image/VPB-9183400998-compact2.png?amount={gia_ban_value}&addInfo={requests.utils.quote(ma_don_final)}&accountName=NGO LE NGOC HUNG"
-    
-    # Chuẩn bị các biến để hiển thị, sử dụng escape_mdv2 để tránh lỗi Markdown
-    ma_don_md = escape_mdv2(ma_don_final)
-    ma_san_pham_md = escape_mdv2(info.get("ma_chon", ""))
-    mo_ta_md = escape_mdv2(info.get("thong_tin_don", ""))
-    slot_md = escape_mdv2(info.get("slot", ""))
-    ngay_bat_dau_md = escape_mdv2(ngay_bat_dau_str)
-    so_ngay_md = escape_mdv2(so_ngay)
-    ngay_het_han_md = escape_mdv2(ngay_het_han)
-    gia_ban_md = escape_mdv2(f"{gia_ban_value:,} đ")
-    khach_hang_md = escape_mdv2(info.get("khach_hang", ""))
-    link_khach_md = escape_mdv2(info.get("link_khach", ""))
-    note_md = escape_mdv2(info.get("note", "")) # Lấy cả ghi chú để hiển thị
+
+    ma_don_md        = escape_mdv2(ma_don_final)
+    ma_san_pham_md   = escape_mdv2(info.get("ma_chon", ""))
+    mo_ta_md         = escape_mdv2(info.get("thong_tin_don", ""))
+    slot_md          = escape_mdv2(info.get("slot", ""))
+    ngay_bat_dau_md  = escape_mdv2(ngay_bat_dau_str)
+    so_ngay_md       = escape_mdv2(so_ngay)
+    ngay_het_han_md  = escape_mdv2(ngay_het_han)
+    gia_ban_md       = escape_mdv2(f"{gia_ban_value:,} đ")
+    khach_hang_md    = escape_mdv2(info.get("khach_hang", ""))
+    link_khach_md    = escape_mdv2(info.get("link_khach", ""))
+    note_md          = escape_mdv2(info.get("note", ""))
+
+    # Xóa tin nhắn chờ và gửi ảnh QR
+    await context.bot.delete_message(chat_id=chat_id, message_id=main_message_id)
     caption = (
         f"✅ Đơn hàng `{ma_don_md}` đã được tạo thành công\\!\n\n"
         f"📦 *THÔNG TIN SẢN PHẨM*\n"
@@ -403,13 +430,11 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         f"{escape_mdv2('Vui lòng chuyển khoản đúng nội dung và số tiền.')}\n\n"
         f"🙏 *{escape_mdv2('Cảm ơn quý khách đã tin tưởng và ủng hộ!')}* ✨"
     )
-    # Xóa tin nhắn chờ và gửi ảnh QR cùng thông tin đơn hàng
-    await context.bot.delete_message(chat_id=chat_id, message_id=main_message_id)
     await context.bot.send_photo(chat_id=chat_id, photo=qr_url, caption=caption, parse_mode="MarkdownV2")
-    
-    # Quay về menu chính và kết thúc conversation
+
     await show_main_selector(update, context, edit=False)
     return await end_add(update, context, success=True)
+
 
 async def end_add(update: Update, context: ContextTypes.DEFAULT_TYPE, success: bool = True) -> int:
     query = update.callback_query
