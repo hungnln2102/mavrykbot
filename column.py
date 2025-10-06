@@ -61,11 +61,6 @@ REFUND_COLUMNS = {
     "SO_TIEN": 2             # C
 }
 
-SHEETS = {
-    "ORDER": "Bảng Đơn Hàng",
-    "IMPORT": "Bảng Nhập Hàng",   # thêm
-}
-
 # ====== NHẬP HÀNG ======
 IMPORT_COLUMNS = {
     "THOI_GIAN": 0,
