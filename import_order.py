@@ -1,4 +1,4 @@
-# import_order.py (Phiên bản cuối cùng)
+# import_order.py (Hoàn chỉnh)
 
 import logging
 import re
@@ -16,10 +16,10 @@ from menu import show_main_selector
 
 logger = logging.getLogger(__name__)
 
-# Thêm các trạng thái mới cho luồng chi tiết
+# Các trạng thái của luồng conversation
 (STATE_ASK_NAME, STATE_PICK_CODE, STATE_NEW_CODE, STATE_PICK_SOURCE, 
- STATE_NEW_SOURCE, STATE_NHAP_THONG_TIN, STATE_NHAP_SLOT, STATE_ASK_DETAILS, 
- STATE_CONFIRM) = range(9)
+ STATE_NEW_SOURCE, STATE_NHAP_GIA_NHAP_MOI, STATE_NHAP_THONG_TIN, 
+ STATE_NHAP_SLOT, STATE_CONFIRM) = range(9)
 
 # ====== CÁC HÀM TIỆN ÍCH ======
 def _col_letter(col_idx: int) -> str:
@@ -54,7 +54,7 @@ def tinh_ngay_het_han(ngay_bat_dau_str, so_ngay_dang_ky):
         return ""
 
 def fmt_summary(d: dict) -> str:
-    """Định dạng tin nhắn tóm tắt thông tin nhập hàng."""
+    """Định dạng tin nhắn tóm tắt thông tin."""
     gia_nhap_str = f"{int(d.get('cost', 0)):,} đ" if str(d.get('cost', '')).isdigit() else d.get('cost', '')
     so_ngay_str = d.get('so_ngay', '0')
     summary = (
@@ -65,11 +65,10 @@ def fmt_summary(d: dict) -> str:
         f"∙ *Thông tin SP*: {escape_mdv2(d.get('thong_tin_sp',''))}\n"
         f"∙ *Slot*: {escape_mdv2(d.get('slot',''))}\n"
         f"∙ *Giá nhập*: *{escape_mdv2(gia_nhap_str)}*\n"
-        f"∙ *Số lượng*: *{escape_mdv2(str(d.get('qty','')))}*\n"
+        f"∙ *Số lượng*: *1*\n"
     )
     if int(so_ngay_str) > 0:
         summary += f"∙ *Thời hạn*: *{escape_mdv2(so_ngay_str)} ngày*\n"
-    summary += f"∙ *Ghi chú*: {escape_mdv2(d.get('note',''))}"
     return summary
 
 def get_price_data() -> list:
@@ -78,12 +77,10 @@ def get_price_data() -> list:
         sheet_gia = connect_to_sheet().worksheet(SHEETS["PRICE"])
         return sheet_gia.get_all_values()[1:]
     except Exception as e:
-        logger.error(f"Lỗi khi tải bảng giá: {e}")
-        return []
+        logger.error(f"Lỗi khi tải bảng giá: {e}"); return []
 
 # ====== CÁC HÀM TẠO BÀN PHÍM (KEYBOARDS) ======
-def kbd_cancel() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="imp_cancel")]])
+def kbd_cancel() -> InlineKeyboardMarkup: return InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="imp_cancel")]])
 def kbd_codes(cands: list[str]) -> InlineKeyboardMarkup:
     num_products = len(cands)
     num_columns = 3 if num_products > 9 else 2
@@ -168,10 +165,8 @@ async def on_pick_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         try:
             name = r[PRICE_COLUMNS["NGUON"]].strip()
             price_str = r[PRICE_COLUMNS["GIA_NHAP"]].strip()
-            if name and name not in sources_with_prices:
-                sources_with_prices[name] = price_str
-        except IndexError:
-            continue
+            if name and name not in sources_with_prices: sources_with_prices[name] = price_str
+        except IndexError: continue
     sources_list = [{'name': name, 'price': price} for name, price in sources_with_prices.items()]
     await query.message.edit_text("🧭 Vui lòng chọn *Nguồn hàng*\\:", parse_mode="MarkdownV2", reply_markup=kbd_sources(sources_list))
     return STATE_PICK_SOURCE
@@ -204,6 +199,17 @@ async def on_pick_source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def on_new_source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     src = update.message.text.strip(); await update.message.delete()
     context.user_data['imp']['source'] = src
+    await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=context.user_data.get('main_message_id'), text="💰 Vui lòng nhập *Giá nhập* cho nguồn mới này\\:", parse_mode="MarkdownV2", reply_markup=kbd_cancel())
+    return STATE_NHAP_GIA_NHAP_MOI
+
+async def nhap_gia_nhap_moi_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        cost = update.message.text.strip().replace('.', '').replace(',', '')
+        context.user_data['imp']['cost'] = int(cost)
+    except (ValueError, TypeError):
+        await update.message.reply_text("Giá nhập không hợp lệ, vui lòng thử lại.")
+        return STATE_NHAP_GIA_NHAP_MOI
+    await update.message.delete()
     await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=context.user_data.get('main_message_id'), text="📝 Vui lòng nhập *Thông tin sản phẩm* \\(vd: tài khoản, mật khẩu\\)\\:", parse_mode="MarkdownV2", reply_markup=kbd_cancel())
     return STATE_NHAP_THONG_TIN
 
@@ -215,23 +221,16 @@ async def nhap_thong_tin_handler(update: Update, context: ContextTypes.DEFAULT_T
 
 async def nhap_slot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, skip:bool=False) -> int:
     query = update.callback_query
-    if skip: context.user_data['imp']['slot'] = ""; await query.answer()
-    else: context.user_data['imp']['slot'] = update.message.text.strip(); await update.message.delete()
-    if 'cost' in context.user_data['imp']: prompt = "*Số lượng*`;` *Ghi chú \\(tùy chọn\\)*\n\n_Ví dụ_\\: `1; hàng có sẵn`"
-    else: prompt = "*Giá nhập*`;` *Số lượng*`;` *Ghi chú \\(tùy chọn\\)*\n\n_Ví dụ_\\: `120000; 1; hàng có sẵn`"
-    await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=context.user_data.get('main_message_id'), text=f"🧾 Nhập chi tiết cuối cùng\\:\n{prompt}", parse_mode="MarkdownV2", reply_markup=kbd_cancel())
-    return STATE_ASK_DETAILS
-
-async def on_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    text = update.message.text.strip(); await update.message.delete()
-    parts = [p.strip() for p in text.split(";")]
-    if 'cost' in context.user_data['imp']:
-        context.user_data['imp']['qty'] = parts[0] if parts else "1"
-        context.user_data['imp']['note'] = parts[1] if len(parts) > 1 else ""
+    if skip:
+        context.user_data['imp']['slot'] = ""
+        await query.answer()
     else:
-        context.user_data['imp']['cost'] = parts[0].replace('.', '').replace(',', '') if parts else "0"
-        context.user_data['imp']['qty'] = parts[1] if len(parts) > 1 else "1"
-        context.user_data['imp']['note'] = parts[2] if len(parts) > 2 else ""
+        context.user_data['imp']['slot'] = update.message.text.strip()
+        await update.message.delete()
+    
+    context.user_data['imp']['qty'] = "1"
+    context.user_data['imp']['note'] = ""
+    
     summary = fmt_summary(context.user_data['imp'])
     await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=context.user_data.get('main_message_id'), text=summary, parse_mode="MarkdownV2", reply_markup=kbd_confirm())
     return STATE_CONFIRM
@@ -239,8 +238,8 @@ async def on_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def on_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query; await query.answer()
     if query.data == "imp_edit":
-        await query.message.edit_text("Vui lòng nhập lại chi tiết cuối cùng\\.\\.\\.", parse_mode="MarkdownV2", reply_markup=kbd_cancel())
-        return STATE_ASK_DETAILS
+        await query.message.edit_text("Vui lòng nhập lại *Thông tin sản phẩm*\\:", parse_mode="MarkdownV2")
+        return STATE_NHAP_THONG_TIN
     if query.data == "imp_save":
         payload = context.user_data.get('imp', {}); await query.edit_message_text(text="⏳ Đang lưu\\.\\.\\.")
         try:
@@ -301,10 +300,10 @@ def get_import_order_conversation_handler() -> ConversationHandler:
             STATE_NEW_CODE:    [MessageHandler(filters.TEXT & ~filters.COMMAND, on_new_code)],
             STATE_PICK_SOURCE: [CallbackQueryHandler(on_pick_source, pattern=r'^(imp_src::.+|imp_new_src)$')],
             STATE_NEW_SOURCE:  [MessageHandler(filters.TEXT & ~filters.COMMAND, on_new_source)],
+            STATE_NHAP_GIA_NHAP_MOI: [MessageHandler(filters.TEXT & ~filters.COMMAND, nhap_gia_nhap_moi_handler)],
             STATE_NHAP_THONG_TIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, nhap_thong_tin_handler)],
             STATE_NHAP_SLOT:   [CallbackQueryHandler(lambda u,c: nhap_slot_handler(u,c,skip=True), pattern='^imp_skip_slot$'),
                                 MessageHandler(filters.TEXT & ~filters.COMMAND, nhap_slot_handler)],
-            STATE_ASK_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, on_details)],
             STATE_CONFIRM:     [CallbackQueryHandler(on_confirm, pattern=r'^(imp_save|imp_edit|imp_cancel)$')],
         },
         fallbacks=[CallbackQueryHandler(on_cancel, pattern=r'^imp_cancel$')],
