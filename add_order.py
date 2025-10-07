@@ -1,11 +1,3 @@
-
-# add_order.py — phiên bản dùng sheet "Tỷ giá" + an toàn MarkdownV2 (md/safe_edit_md)
-# - Chỉ xuất mã sản phẩm nếu cột F (Check/Còn hàng) = TRUE
-# - Không dùng "Bảng Giá" nữa. Nguồn lấy từ các cột G→ của sheet "Tỷ giá"
-# - Giá bán lấy từ D (Giá CTV) hoặc E (Giá Khách) theo loại khách
-# - Nếu tìm theo tên mà không có mã còn hàng -> yêu cầu nhập Mã SP mới & Nguồn mới (bỏ qua kiểm tra Tỷ giá)
-# - MỌI chỗ gửi/sửa tin nhắn đều đi qua helper md()/safe_edit_md()/safe_send_md để tránh lỗi MarkdownV2
-
 import logging
 import re
 import asyncio
@@ -94,10 +86,18 @@ def to_int_vnd(s: str) -> int:
 # ---- MarkdownV2 helpers ----
 
 def md(text: str) -> str:
-    """Escape nội dung động bằng escape_mdv2 + thay '...' bằng ellipsis để an toàn."""
     if text is None:
         return ""
     return escape_mdv2(str(text).replace("...", "…"))
+
+def md_soft(text: str) -> str:
+    """Escape MarkdownV2 cơ bản, giữ nguyên _ và - để hiển thị mã sản phẩm đẹp"""
+    if not text:
+        return ""
+    text = text.replace("...", "…")
+    for ch in ['*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '=', '{', '}', '|', '.', '!']:
+        text = text.replace(ch, f"\\{ch}")
+    return text
 
 async def safe_edit_md(bot, chat_id: int, message_id: int, text: str, reply_markup=None, try_plain: bool = True):
     try:
@@ -125,8 +125,6 @@ async def safe_send_md(bot, chat_id: int, text: str, reply_markup=None, try_plai
                 chat_id=chat_id, text=text, reply_markup=reply_markup
             )
         raise
-
-# đánh dấu còn hàng theo cột F
 
 def is_available(val) -> bool:
     s = str(val).strip().lower()
