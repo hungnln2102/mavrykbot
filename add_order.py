@@ -1,3 +1,9 @@
+# add_order.py — phiên bản dùng sheet "Tỷ giá"
+# - Chỉ xuất mã sản phẩm nếu cột F (Check/Còn hàng) = TRUE
+# - Không dùng "Bảng Giá" nữa. Nguồn lấy từ các cột G→ của sheet "Tỷ giá"
+# - Giá bán lấy từ D (Giá CTV) hoặc E (Giá Khách) theo loại khách
+# - Nếu tìm theo tên mà không có mã còn hàng -> yêu cầu nhập Mã SP mới & Nguồn mới (bỏ qua kiểm tra Tỷ giá)
+
 import logging
 import re
 import asyncio
@@ -11,20 +17,26 @@ from telegram.ext import (
 )
 from utils import connect_to_sheet, generate_unique_id, escape_mdv2
 from menu import show_main_selector
-from column import SHEETS, PRICE_COLUMNS, ORDER_COLUMNS
+from column import SHEETS, PRICE_COLUMNS, ORDER_COLUMNS, TYGIA_IDX  # PRICE_COLUMNS vẫn dùng ở chỗ khác
 from collections import defaultdict
-
 
 logger = logging.getLogger(__name__)
 
-(STATE_CHON_LOAI_KHACH, STATE_NHAP_TEN_SP, STATE_CHON_MA_SP, STATE_NHAP_MA_MOI, 
- STATE_CHON_NGUON, STATE_NHAP_NGUON_MOI, STATE_NHAP_GIA_NHAP, STATE_NHAP_THONG_TIN, 
- STATE_NHAP_TEN_KHACH, STATE_NHAP_LINK_KHACH, STATE_NHAP_SLOT, 
- STATE_NHAP_GIA_BAN, STATE_NHAP_NOTE) = range(13)
+# =============================
+# Trạng thái Conversation
+# =============================
+(
+    STATE_CHON_LOAI_KHACH, STATE_NHAP_TEN_SP, STATE_CHON_MA_SP, STATE_NHAP_MA_MOI,
+    STATE_CHON_NGUON, STATE_NHAP_NGUON_MOI, STATE_NHAP_GIA_NHAP, STATE_NHAP_THONG_TIN,
+    STATE_NHAP_TEN_KHACH, STATE_NHAP_LINK_KHACH, STATE_NHAP_SLOT,
+    STATE_NHAP_GIA_BAN, STATE_NHAP_NOTE
+) = range(13)
 
-# --- Các hàm tiện ích ---
+# =============================
+# Tiện ích
+# =============================
+
 def _col_letter(col_idx: int) -> str:
-    """Chuyển đổi chỉ số cột (0=A, 1=B) thành ký tự cột trong Google Sheet."""
     if col_idx < 0:
         return ""
     letter = ""
@@ -34,6 +46,7 @@ def _col_letter(col_idx: int) -> str:
         col_idx -= 1
     return letter
 
+
 def extract_days_from_ma_sp(ma_sp: str) -> int:
     match = re.search(r"--(\d+)m", ma_sp.lower())
     if match:
@@ -41,29 +54,53 @@ def extract_days_from_ma_sp(ma_sp: str) -> int:
         return 365 if thang == 12 else thang * 30
     return 0
 
+
 def tinh_ngay_het_han(ngay_bat_dau_str, so_ngay_dang_ky):
     try:
         ngay_bat_dau = datetime.strptime(ngay_bat_dau_str, "%d/%m/%Y")
-        
         tong_ngay = int(so_ngay_dang_ky)
-        
         so_nam = tong_ngay // 365
         so_ngay_con_lai = tong_ngay % 365
         so_thang = so_ngay_con_lai // 30
         so_ngay_du = so_ngay_con_lai % 30
-        
         ngay_het_han = ngay_bat_dau + relativedelta(
             years=so_nam,
             months=so_thang,
             days=so_ngay_du - 1
         )
-        
         return ngay_het_han.strftime("%d/%m/%Y")
     except (ValueError, TypeError) as e:
         logger.error(f"[LỖI TÍNH NGÀY]: {e}")
         return ""
 
-# --- Các hàm xử lý của Conversation ---
+
+def to_int_vnd(s: str) -> int:
+    """'1.200.000 đ' -> 1200000 ; '1200' -> 1200; '' -> 0"""
+    if not s:
+        return 0
+    s = str(s).strip()
+    s = s.replace("đ", "").replace("₫", "").replace(" ", "")
+    s = s.replace(",", "")
+    m = re.findall(r"\d+\.?\d*", s)
+    if not m:
+        return 0
+    try:
+        return int(float(m[0]))
+    except Exception:
+        return 0
+
+
+def is_available(val) -> bool:
+    """Đánh dấu cột F còn hàng."""
+    s = str(val).strip().lower()
+    return s in {
+        "true", "1", "yes", "y", "x", "✓", "✔",
+        "con", "còn", "còn hàng", "available", "stock", "ok"
+    }
+
+# =============================
+# Entry
+# =============================
 
 async def start_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
@@ -86,6 +123,7 @@ async def start_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     )
     return STATE_CHON_LOAI_KHACH
 
+
 async def chon_loai_khach_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
@@ -104,61 +142,94 @@ async def chon_loai_khach_handler(update: Update, context: ContextTypes.DEFAULT_
     await query.edit_message_text(message_text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]]), parse_mode="MarkdownV2")
     return STATE_NHAP_TEN_SP
 
+
+# =============================
+# 2) Nhập tên sản phẩm — đọc sheet "Tỷ giá"
+# =============================
 async def nhap_ten_sp_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     ten_sp = update.message.text.strip()
     await update.message.delete()
     context.user_data['ten_san_pham_raw'] = ten_sp
     main_message_id = context.user_data.get('main_message_id')
     chat_id = update.effective_chat.id
-    
-    ten_sp_md = escape_mdv2(ten_sp)
-    text_part_1 = escape_mdv2("🔎 Đang tìm sản phẩm ")
-    text_part_2 = escape_mdv2("...")
-    await context.bot.edit_message_text(chat_id=chat_id, message_id=main_message_id, text=f"{text_part_1}*{ten_sp_md}*{text_part_2}", parse_mode="MarkdownV2")
-    
+
+    await context.bot.edit_message_text(
+        chat_id=chat_id, message_id=main_message_id,
+        text=f"🔎 Đang tìm sản phẩm *{escape_mdv2(ten_sp)}*...",
+        parse_mode="MarkdownV2"
+    )
+
     try:
-        sheet_gia = connect_to_sheet().worksheet(SHEETS["PRICE"])
-        price_data = sheet_gia.get_all_values()[1:]
-        context.user_data['price_data_cache'] = price_data
+        ss = connect_to_sheet()
+        sh = ss.worksheet(SHEETS["EXCHANGE"])  # 'Tỷ giá'
+        all_vals = sh.get_all_values()
+        headers = all_vals[0] if all_vals else []
+        rows = all_vals[1:] if len(all_vals) > 1 else []
     except Exception as e:
-        logger.error(f"Lỗi khi tải bảng giá: {e}")
-        await context.bot.edit_message_text(chat_id=chat_id, message_id=main_message_id, text=escape_mdv2("❌ Lỗi kết nối Google Sheet."), parse_mode="MarkdownV2")
+        logger.error(f"Lỗi khi tải sheet Tỷ giá: {e}")
+        await context.bot.edit_message_text(
+            chat_id=chat_id, message_id=main_message_id,
+            text=escape_mdv2("❌ Lỗi kết nối Google Sheet."),
+            parse_mode="MarkdownV2"
+        )
         return await end_add(update, context, success=False)
 
-    grouped = defaultdict(list)
-    for row in price_data:
-        if len(row) > PRICE_COLUMNS["TEN_SAN_PHAM"] and ten_sp.lower() in row[PRICE_COLUMNS["TEN_SAN_PHAM"]].strip().lower():
-            grouped[row[PRICE_COLUMNS["TEN_SAN_PHAM"]].strip()].append(row)
+    # C = Sản phẩm, F = Check/Còn hàng
+    matched = []
+    for r in rows:
+        try:
+            name = (r[TYGIA_IDX["SAN_PHAM"]] or "").strip()
+            if ten_sp.lower() in name.lower():
+                if is_available(r[TYGIA_IDX["STATUS"]] if len(r) > TYGIA_IDX["STATUS"] else ""):
+                    matched.append(r)
+        except Exception:
+            continue
 
-    if not grouped:
-        await context.bot.edit_message_text(chat_id=chat_id, message_id=main_message_id, text=f"❌ Không tìm thấy *{ten_sp_md}* trong bảng giá\\.\n\n✏️ Vui lòng nhập *Mã sản phẩm Mới*:", parse_mode="MarkdownV2", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]]))
+    # Không có mã còn hàng -> yêu cầu Nhập Mã mới + Nguồn mới (bỏ qua check Tỷ giá)
+    if len(matched) < 1:
+        context.user_data['skip_check_tygia'] = True
+        await context.bot.edit_message_text(
+            chat_id=chat_id, message_id=main_message_id,
+            text=(
+                "⚠️ Không có *mã sản phẩm còn hàng* trong *Tỷ giá*.\n\n"
+                "✏️ Vui lòng nhập *Mã sản phẩm mới* (ví dụ: `Netflix--1m`)."
+            ),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]]),
+            parse_mode="MarkdownV2",
+        )
         return STATE_NHAP_MA_MOI
 
-    context.user_data['grouped_products'] = grouped
-    
-    # --- THAY ĐỔI LOGIC CHIA CỘT TẠI ĐÂY ---
-    product_keys = list(grouped.keys())
-    num_products = len(product_keys)
-    num_columns = 3 if num_products > 9 else 2
-    
+    # >= 1 mã → cho chọn mã (giá trị ở cột C)
+    context.user_data["tygia_headers"] = headers
+    context.user_data["tygia_rows_matched"] = matched
+
+    product_keys = []
+    for r in matched:
+        val = (r[TYGIA_IDX["SAN_PHAM"]] or "").strip()
+        if val and val not in product_keys:
+            product_keys.append(val)
+
+    num_columns = 3 if len(product_keys) > 9 else 2
     keyboard, row = [], []
     for ma_sp in product_keys:
         row.append(InlineKeyboardButton(text=ma_sp, callback_data=f"chon_ma|{ma_sp}"))
         if len(row) == num_columns:
-            keyboard.append(row)
-            row = []
-    if row: 
+            keyboard.append(row); row = []
+    if row:
         keyboard.append(row)
-    
-    keyboard.append([InlineKeyboardButton("✏️ Nhập Mã Mới", callback_data="nhap_ma_moi"), InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")])
-    
+    keyboard.append([
+        InlineKeyboardButton("✏️ Nhập Mã Mới", callback_data="nhap_ma_moi"),
+        InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")
+    ])
+
     await context.bot.edit_message_text(
         chat_id=chat_id, message_id=main_message_id,
-        text=f"📦 Vui lòng chọn *Mã sản phẩm* phù hợp cho *{ten_sp_md}*:",
+        text=f"📦 Vui lòng chọn *Mã sản phẩm* phù hợp cho *{escape_mdv2(ten_sp)}*:",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="MarkdownV2"
     )
     return STATE_CHON_MA_SP
+
 
 async def nhap_ma_moi_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
@@ -166,102 +237,184 @@ async def nhap_ma_moi_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.edit_message_text("✏️ Vui lòng nhập *Mã Sản Phẩm mới* (ví dụ: Netflix--1m):", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]]))
     return STATE_NHAP_MA_MOI
 
+
+# Nếu không có mã hợp lệ trong Tỷ giá, sau khi nhập mã mới -> đi thẳng sang nhập Nguồn mới
 async def xu_ly_ma_moi_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     ma_moi = update.message.text.strip().replace("—", "--").replace("–", "--")
     await update.message.delete()
     context.user_data['ma_chon'] = ma_moi
     so_ngay = extract_days_from_ma_sp(ma_moi)
-    if so_ngay > 0: context.user_data['so_ngay'] = str(so_ngay)
-    await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=context.user_data['main_message_id'], text="🚚 Vui lòng nhập *tên Nguồn hàng mới*:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]]), parse_mode="Markdown")
+    if so_ngay > 0:
+        context.user_data['so_ngay'] = str(so_ngay)
+
+    # nếu trước đó không có mã còn hàng -> bỏ qua check Tỷ giá, vào luôn nguồn mới
+    if context.user_data.get('skip_check_tygia'):
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id, message_id=context.user_data['main_message_id'],
+            text="🚚 Vui lòng nhập *tên Nguồn hàng mới*:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]]),
+            parse_mode="Markdown"
+        )
+        return STATE_NHAP_NGUON_MOI
+
+    # Trường hợp bình thường cũng sẽ sang Nguồn mới (vì mã mới chưa có trong Tỷ giá)
+    await context.bot.edit_message_text(
+        chat_id=update.effective_chat.id, message_id=context.user_data['main_message_id'],
+        text="🚚 Vui lòng nhập *tên Nguồn hàng mới*:",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]]),
+        parse_mode="Markdown"
+    )
     return STATE_NHAP_NGUON_MOI
-    
+
+
+# =============================
+# 3) Chọn mã -> liệt kê nguồn từ cột G→
+# =============================
 async def chon_ma_sp_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
     ma_chon = query.data.split("|", 1)[1]
     context.user_data['ma_chon'] = ma_chon
-    
-    so_ngay = extract_days_from_ma_sp(ma_chon)
-    if so_ngay > 0: context.user_data['so_ngay'] = str(so_ngay)
-    
-    ds = context.user_data.get("grouped_products", {}).get(ma_chon, [])
-    context.user_data['ds_san_pham_theo_ma'] = ds
-    
+
+    headers = context.user_data.get("tygia_headers", [])
+    rows = context.user_data.get("tygia_rows_matched", [])
+    SRC_START = TYGIA_IDX["SRC_START"]
+
+    # lấy đúng dòng sản phẩm
+    product_row = None
+    for r in rows:
+        if (r[TYGIA_IDX["SAN_PHAM"]] or "").strip() == ma_chon:
+            product_row = r
+            break
+    if not product_row:
+        await query.edit_message_text("❌ Không tìm thấy dòng sản phẩm trong cache.", parse_mode="Markdown")
+        return await end_add(update, context, success=False)
+
+    context.user_data['product_row'] = product_row
+
+    # liệt kê nguồn có giá trị ở G… (giá nhập)
     keyboard, row = [], []
-    for r in ds:
-        try:
-            nguon, gia = r[PRICE_COLUMNS["NGUON"]].strip(), r[PRICE_COLUMNS["GIA_NHAP"]].strip()
-            label = f"{nguon} - {gia}"
-            row.append(InlineKeyboardButton(label, callback_data=f"chon_nguon|{nguon}"))
-            if len(row) == 2: keyboard.append(row); row = []
-        except IndexError: continue
-    if row: keyboard.append(row)
-    
+    for col_idx in range(SRC_START, len(headers)):
+        src_name = (headers[col_idx] or "").strip()
+        val = (product_row[col_idx] or "").strip()
+        if src_name and val:
+            label = f"{src_name} - {val}"
+            row.append(InlineKeyboardButton(label, callback_data=f"chon_nguon|{src_name}"))
+            if len(row) == 2:
+                keyboard.append(row); row = []
+    if row:
+        keyboard.append(row)
+
     keyboard.append([InlineKeyboardButton("➕ Nguồn Mới", callback_data="nguon_moi"), InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")])
     await query.edit_message_text(f"📦 Mã SP: `{escape_mdv2(ma_chon)}`\n\n🚚 Vui lòng chọn *Nguồn hàng*:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="MarkdownV2")
     return STATE_CHON_NGUON
 
+
+# =============================
+# 4) Chọn nguồn -> lấy Giá nhập (ô giao), Giá bán (D/E)
+# =============================
 async def chon_nguon_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query; await query.answer()
-    nguon = query.data.split("|", 1)[1]; context.user_data["nguon"] = nguon
-    ds, loai_khach = context.user_data.get("ds_san_pham_theo_ma", []), context.user_data.get("loai_khach")
-    gia_nhap, gia_ban = 0, 0
-    for row in ds:
-        if len(row) > PRICE_COLUMNS["NGUON"] and row[PRICE_COLUMNS["NGUON"]].strip() == nguon:
-            try:
-                gia_nhap_str = row[PRICE_COLUMNS["GIA_NHAP"]]
-                gia_ban_col = PRICE_COLUMNS["GIA_BAN_CTV"] if loai_khach == "ctv" else PRICE_COLUMNS["GIA_BAN_LE"]
-                gia_ban_str = row[gia_ban_col]
-                gia_nhap = int(re.sub(r'[^\d]', '', gia_nhap_str))
-                gia_ban = int(re.sub(r'[^\d]', '', gia_ban_str))
-            except (ValueError, IndexError): gia_nhap, gia_ban = 0, 0
-            break
-    context.user_data["gia_nhap_value"], context.user_data["gia_ban_value"] = gia_nhap, gia_ban
+    query = update.callback_query
+    await query.answer()
+
+    nguon = query.data.split("|", 1)[1].strip()
+    context.user_data["nguon"] = nguon
+
+    headers = context.user_data.get("tygia_headers", [])
+    product_row = context.user_data.get("product_row", [])
+    loai_khach = context.user_data.get("loai_khach")
+
+    try:
+        # giá nhập = ô (sản phẩm, nguồn)
+        col_idx = headers.index(nguon)
+        gia_nhap_cell = (product_row[col_idx] or "").strip()
+        gia_nhap = to_int_vnd(gia_nhap_cell)
+
+        # giá bán = D/E theo loại khách
+        gia_ctv = to_int_vnd(product_row[TYGIA_IDX["GIA_CTV"]])    # D
+        gia_khach = to_int_vnd(product_row[TYGIA_IDX["GIA_KHACH"]])  # E
+        gia_ban = gia_ctv if loai_khach == "ctv" else gia_khach
+    except Exception as e:
+        logger.warning(f"Lỗi xác định giá theo Tỷ giá: {e}")
+        gia_nhap, gia_ban = 0, 0
+
+    # Số ngày từ hậu tố mã SP (ví dụ --1m)
+    so_ngay = extract_days_from_ma_sp(context.user_data.get('ma_chon', ''))
+    if so_ngay > 0:
+        context.user_data['so_ngay'] = str(so_ngay)
+
+    context.user_data["gia_nhap_value"] = gia_nhap
+    context.user_data["gia_ban_value"] = gia_ban
+
     await query.edit_message_text("📝 Vui lòng nhập *Thông tin đơn hàng* (ví dụ: tài khoản, mật khẩu):", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]]))
     return STATE_NHAP_THONG_TIN
 
+
+# =============================
+# 5) Các bước còn lại giữ nguyên
+# =============================
 async def chon_nguon_moi_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query; await query.answer()
+    query = update.callback_query
+    await query.answer()
     await query.edit_message_text("🚚 Vui lòng nhập *tên Nguồn hàng mới*:", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]]))
     return STATE_NHAP_NGUON_MOI
 
+
 async def nhap_nguon_moi_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data["nguon"] = update.message.text.strip(); await update.message.delete()
+    context.user_data["nguon"] = update.message.text.strip()
+    await update.message.delete()
     await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=context.user_data['main_message_id'], text="💰 Vui lòng nhập *Giá nhập*:", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]]))
     return STATE_NHAP_GIA_NHAP
 
+
 async def nhap_gia_nhap_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    gia_nhap_raw = update.message.text.strip(); await update.message.delete()
-    try: context.user_data["gia_nhap_value"] = int(float(gia_nhap_raw.replace(",", ".")) * 1000)
+    gia_nhap_raw = update.message.text.strip()
+    await update.message.delete()
+    try:
+        context.user_data["gia_nhap_value"] = int(float(gia_nhap_raw.replace(",", ".")) * 1000)
     except ValueError:
         await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=context.user_data['main_message_id'], text="⚠️ Giá nhập không hợp lệ. Vui lòng nhập lại:", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]]))
         return STATE_NHAP_GIA_NHAP
     await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=context.user_data['main_message_id'], text="📝 Vui lòng nhập *Thông tin đơn hàng*:", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]]))
     return STATE_NHAP_THONG_TIN
 
+
 async def nhap_thong_tin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data["thong_tin_don"] = update.message.text.strip(); await update.message.delete()
+    context.user_data["thong_tin_don"] = update.message.text.strip()
+    await update.message.delete()
     await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=context.user_data['main_message_id'], text="👤 Vui lòng nhập *tên khách hàng*:", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]]))
     return STATE_NHAP_TEN_KHACH
 
+
 async def nhap_ten_khach_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data["khach_hang"] = update.message.text.strip(); await update.message.delete()
+    context.user_data["khach_hang"] = update.message.text.strip()
+    await update.message.delete()
     keyboard = [[InlineKeyboardButton("⏭️ Bỏ Qua", callback_data="skip_link")], [InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]]
     await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=context.user_data['main_message_id'], text="🔗 Vui lòng nhập *thông tin liên hệ* hoặc bấm Bỏ Qua:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return STATE_NHAP_LINK_KHACH
 
+
 async def nhap_link_khach_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, skip: bool = False) -> int:
     query = update.callback_query
-    if skip: context.user_data["link_khach"] = ""; await query.answer()
-    else: context.user_data["link_khach"] = update.message.text.strip(); await update.message.delete()
+    if skip:
+        context.user_data["link_khach"] = ""
+        await query.answer()
+    else:
+        context.user_data["link_khach"] = update.message.text.strip()
+        await update.message.delete()
     keyboard = [[InlineKeyboardButton("⏭️ Bỏ Qua", callback_data="skip_slot")], [InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]]
     await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=context.user_data['main_message_id'], text="🧩 Vui lòng nhập *Slot* (nếu có) hoặc bấm Bỏ Qua:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return STATE_NHAP_SLOT
 
+
 async def nhap_slot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, skip: bool = False) -> int:
     query = update.callback_query
-    if skip: context.user_data["slot"] = ""; await query.answer()
-    else: context.user_data["slot"] = update.message.text.strip(); await update.message.delete()
+    if skip:
+        context.user_data["slot"] = ""
+        await query.answer()
+    else:
+        context.user_data["slot"] = update.message.text.strip()
+        await update.message.delete()
     if "gia_ban_value" in context.user_data and context.user_data["gia_ban_value"] > 0:
         keyboard = [[InlineKeyboardButton("⏭️ Bỏ Qua", callback_data="skip_note")], [InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]]
         await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=context.user_data['main_message_id'], text="📝 Vui lòng nhập *Ghi chú* (nếu có) hoặc bấm Bỏ Qua:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -270,9 +423,12 @@ async def nhap_slot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=context.user_data['main_message_id'], text="💵 Vui lòng nhập *Giá bán*:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]]), parse_mode="Markdown")
         return STATE_NHAP_GIA_BAN
 
+
 async def nhap_gia_ban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    gia_ban_raw = update.message.text.strip(); await update.message.delete()
-    try: context.user_data["gia_ban_value"] = int(float(gia_ban_raw.replace(",", ".")) * 1000)
+    gia_ban_raw = update.message.text.strip()
+    await update.message.delete()
+    try:
+        context.user_data["gia_ban_value"] = int(float(gia_ban_raw.replace(",", ".")) * 1000)
     except ValueError:
         await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=context.user_data['main_message_id'], text="⚠️ Giá bán không hợp lệ. Vui lòng nhập lại:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]]), parse_mode="Markdown")
         return STATE_NHAP_GIA_BAN
@@ -280,40 +436,21 @@ async def nhap_gia_ban_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=context.user_data['main_message_id'], text="📝 Vui lòng nhập *Ghi chú* (nếu có) hoặc bấm Bỏ Qua:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return STATE_NHAP_NOTE
 
+
 async def nhap_note_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, skip: bool = False) -> int:
     query = update.callback_query
-    if skip: context.user_data["note"] = ""; await query.answer()
-    else: context.user_data["note"] = update.message.text.strip(); await update.message.delete()
+    if skip:
+        context.user_data["note"] = ""
+        await query.answer()
+    else:
+        context.user_data["note"] = update.message.text.strip()
+        await update.message.delete()
     return await hoan_tat_don(update, context)
 
-def tinh_ngay_het_han(ngay_bat_dau_str, so_ngay_dang_ky):
-    """Sử dụng logic tính ngày chuẩn, có trừ 1 ngày."""
-    try:
-        from dateutil.relativedelta import relativedelta
-        ngay_bat_dau = datetime.strptime(ngay_bat_dau_str, "%d/%m/%Y")
-        
-        tong_ngay = int(so_ngay_dang_ky)
-        
-        so_nam = tong_ngay // 365
-        so_ngay_con_lai = tong_ngay % 365
-        so_thang = so_ngay_con_lai // 30
-        so_ngay_du = so_ngay_con_lai % 30
-        
-        ngay_het_han = ngay_bat_dau + relativedelta(
-            years=so_nam,
-            months=so_thang,
-            days=so_ngay_du - 1
-        )
-        
-        return ngay_het_han.strftime("%d/%m/%Y")
-    except (ValueError, TypeError) as e:
-        print(f"[LỖI TÍNH NGÀY]: {e}")
-        return ""
 
-async def end_add(update: Update, context: ContextTypes.DEFAULT_TYPE, success: bool = True) -> int:
-    context.user_data.clear()
-    return ConversationHandler.END
-
+# =============================
+# Hoàn tất đơn & kết thúc
+# =============================
 async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     chat_id = query.message.chat.id if query else update.effective_chat.id
@@ -325,6 +462,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             message_id=main_message_id,
             text="⏳ Đang hoàn tất đơn hàng, vui lòng chờ..."
         )
+
     try:
         info = context.user_data
         ngay_bat_dau_str = datetime.now().strftime("%d/%m/%Y")
@@ -337,20 +475,20 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             next_row = len(sheet.col_values(1)) + 1
 
             row_data = [""] * len(ORDER_COLUMNS)
-            row_data[ORDER_COLUMNS["ID_DON_HANG"]]     = info.get("ma_don", "")
-            row_data[ORDER_COLUMNS["SAN_PHAM"]]        = info.get("ma_chon", info.get("ten_san_pham_raw", ""))
-            row_data[ORDER_COLUMNS["THONG_TIN_DON"]]   = info.get("thong_tin_don", "")
-            row_data[ORDER_COLUMNS["TEN_KHACH"]]       = info.get("khach_hang", "")
-            row_data[ORDER_COLUMNS["LINK_KHACH"]]      = info.get("link_khach", "")
-            row_data[ORDER_COLUMNS["SLOT"]]            = info.get("slot", "")
-            row_data[ORDER_COLUMNS["NGAY_DANG_KY"]]    = ngay_bat_dau_str
-            row_data[ORDER_COLUMNS["SO_NGAY"]]         = so_ngay
-            row_data[ORDER_COLUMNS["HET_HAN"]]         = ngay_het_han
-            row_data[ORDER_COLUMNS["NGUON"]]           = info.get("nguon", "")
-            row_data[ORDER_COLUMNS["GIA_NHAP"]]        = info.get("gia_nhap_value", "")
-            row_data[ORDER_COLUMNS["GIA_BAN"]]         = gia_ban_value
-            row_data[ORDER_COLUMNS["GHI_CHU"]]         = info.get("note", "")
-            row_data[ORDER_COLUMNS["CHECK"]]           = "" 
+            row_data[ORDER_COLUMNS["ID_DON_HANG"]]   = info.get("ma_don", "")
+            row_data[ORDER_COLUMNS["SAN_PHAM"]]      = info.get("ma_chon", info.get("ten_san_pham_raw", ""))
+            row_data[ORDER_COLUMNS["THONG_TIN_DON"]] = info.get("thong_tin_don", "")
+            row_data[ORDER_COLUMNS["TEN_KHACH"]]     = info.get("khach_hang", "")
+            row_data[ORDER_COLUMNS["LINK_KHACH"]]    = info.get("link_khach", "")
+            row_data[ORDER_COLUMNS["SLOT"]]          = info.get("slot", "")
+            row_data[ORDER_COLUMNS["NGAY_DANG_KY"]]  = ngay_bat_dau_str
+            row_data[ORDER_COLUMNS["SO_NGAY"]]       = so_ngay
+            row_data[ORDER_COLUMNS["HET_HAN"]]       = ngay_het_han
+            row_data[ORDER_COLUMNS["NGUON"]]         = info.get("nguon", "")
+            row_data[ORDER_COLUMNS["GIA_NHAP"]]      = info.get("gia_nhap_value", "")
+            row_data[ORDER_COLUMNS["GIA_BAN"]]       = gia_ban_value
+            row_data[ORDER_COLUMNS["GHI_CHU"]]       = info.get("note", "")
+            row_data[ORDER_COLUMNS["CHECK"]]         = ""
 
             col_HH = _col_letter(ORDER_COLUMNS["HET_HAN"])
             col_CL = _col_letter(ORDER_COLUMNS["CON_LAI"])
@@ -361,6 +499,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             row_data[ORDER_COLUMNS["CON_LAI"]] = f'=IF(ISBLANK({col_HH}{next_row}); ""; {col_HH}{next_row}-TODAY())'
             row_data[ORDER_COLUMNS["GIA_TRI_CON_LAI"]] = f'=IF(OR({col_SN}{next_row}="";{col_SN}{next_row}=0); 0; IFERROR({col_GB}{next_row}/{col_SN}{next_row}*{col_CL}{next_row}; 0))'
             row_data[ORDER_COLUMNS["TINH_TRANG"]] = f'=IF({col_CL}{next_row}<=0; "Hết Hạn"; IF({col_CK}{next_row}=TRUE; "Đã Thanh Toán"; "Chưa Thanh Toán"))'
+
             end_col_letter = _col_letter(len(ORDER_COLUMNS) - 1)
             sheet.update(f"A{next_row}:{end_col_letter}{next_row}", [row_data], value_input_option='USER_ENTERED')
 
@@ -371,7 +510,6 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
         ma_don_final = info.get('ma_don','')
         qr_url = f"https://img.vietqr.io/image/VPB-9183400998-compact2.png?amount={gia_ban_value}&addInfo={requests.utils.quote(ma_don_final)}&accountName=NGO LE NGOC HUNG"
-
         caption = (
             f"✅ Đơn hàng `{escape_mdv2(ma_don_final)}` đã được tạo thành công\\!\n\n"
             f"📦 *THÔNG TIN SẢN PHẨM*\n"
@@ -387,7 +525,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             f"📢 *STK:* 9183400998\n"
             f"📢 *Nội dung:* Thanh toán `{escape_mdv2(ma_don_final)}`"
         )
-        
+
         await context.bot.delete_message(chat_id=chat_id, message_id=main_message_id)
         await context.bot.send_photo(chat_id=chat_id, photo=qr_url, caption=caption, parse_mode="MarkdownV2")
         await show_main_selector(update, context, edit=False)
@@ -398,22 +536,23 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     finally:
         return await end_add(update, context, success=True)
 
+
 async def end_add(update: Update, context: ContextTypes.DEFAULT_TYPE, success: bool = True) -> int:
     query = update.callback_query
     context.user_data.clear()
     if not success:
         await asyncio.sleep(2)
-        if query: await show_main_selector(update, context, edit=True)
-    elif query:
-        # Nếu thành công và bắt nguồn từ query, không cần làm gì thêm vì đã gửi ảnh mới
-        pass
+        if query:
+            await show_main_selector(update, context, edit=True)
     return ConversationHandler.END
+
 
 async def cancel_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(escape_mdv2("❌ Đã hủy thao tác thêm đơn."), parse_mode="MarkdownV2")
     return await end_add(update, context, success=False)
+
 
 def get_add_order_conversation_handler():
     cancel_handler = CallbackQueryHandler(cancel_add, pattern="^cancel_add$")
