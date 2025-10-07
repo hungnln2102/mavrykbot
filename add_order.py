@@ -418,7 +418,9 @@ async def nhap_gia_nhap_handler(update: Update, context: ContextTypes.DEFAULT_TY
     gia_nhap_raw = update.message.text.strip()
     await update.message.delete()
     try:
-        context.user_data["gia_nhap_value"] = int(float(gia_nhap_raw.replace(",", ".")) * 1000)
+        # Loại bỏ đ, dấu chấm phẩy, rồi parse thành int
+        clean = re.sub(r"[^\d]", "", gia_nhap_raw)
+        context.user_data["gia_nhap_value"] = int(clean or 0)
     except ValueError:
         await safe_edit_md(
             context.bot, update.effective_chat.id, context.user_data['main_message_id'],
@@ -426,13 +428,13 @@ async def nhap_gia_nhap_handler(update: Update, context: ContextTypes.DEFAULT_TY
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]])
         )
         return STATE_NHAP_GIA_NHAP
+
     await safe_edit_md(
         context.bot, update.effective_chat.id, context.user_data['main_message_id'],
         text="📝 Vui lòng nhập *Thông tin đơn hàng*:",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]])
     )
     return STATE_NHAP_THONG_TIN
-
 
 async def nhap_thong_tin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data["thong_tin_don"] = update.message.text.strip()
@@ -509,17 +511,24 @@ async def nhap_gia_ban_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     gia_ban_raw = update.message.text.strip()
     await update.message.delete()
     try:
-        context.user_data["gia_ban_value"] = int(float(gia_ban_raw.replace(",", ".")) * 1000)
+        clean = re.sub(r"[^\d]", "", gia_ban_raw)
+        context.user_data["gia_ban_value"] = int(clean or 0)
     except ValueError:
         await safe_edit_md(
             context.bot, update.effective_chat.id, context.user_data['main_message_id'],
-            text="⚠️ Giá bán không hợp lệ. Vui lòng nhập lại:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]])
+            text="⚠️ Giá bán không hợp lệ. Vui lòng nhập lại:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]])
         )
         return STATE_NHAP_GIA_BAN
-    keyboard = [[InlineKeyboardButton("⏭️ Bỏ Qua", callback_data="skip_note")], [InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]]
+
+    keyboard = [
+        [InlineKeyboardButton("⏭️ Bỏ Qua", callback_data="skip_note")],
+        [InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]
+    ]
     await safe_edit_md(
         context.bot, update.effective_chat.id, context.user_data['main_message_id'],
-        text="📝 Vui lòng nhập *Ghi chú* \\(nếu có\\) hoặc bấm Bỏ Qua:", reply_markup=InlineKeyboardMarkup(keyboard)
+        text="📝 Vui lòng nhập *Ghi chú* (nếu có) hoặc bấm Bỏ Qua:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return STATE_NHAP_NOTE
 
@@ -556,6 +565,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         gia_ban_value = info.get("gia_ban_value", 0)
         ngay_het_han = tinh_ngay_het_han(ngay_bat_dau_str, so_ngay)
 
+        # Ghi sheet
         try:
             sheet = connect_to_sheet().worksheet(SHEETS["ORDER"])
             next_row = len(sheet.col_values(1)) + 1
@@ -590,26 +600,32 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             sheet.update(f"A{next_row}:{end_col_letter}{next_row}", [row_data], value_input_option='USER_ENTERED')
 
         except Exception as e:
-            error_message = md(f"❌ Lỗi khi ghi đơn hàng vào Google Sheet: {e}")
-            await safe_edit_md(context.bot, chat_id, main_message_id, error_message)
+            await safe_edit_md(context.bot, chat_id, main_message_id, md(f"❌ Lỗi khi ghi đơn hàng vào Google Sheet: {e}"))
             return await end_add(update, context, success=False)
 
+        # ✅ Caption: dùng \n (không dùng \\n), md() chỉ bọc phần động
         ma_don_final = info.get('ma_don','')
-        qr_url = f"https://img.vietqr.io/image/VPB-9183400998-compact2.png?amount={gia_ban_value}&addInfo={requests.utils.quote(ma_don_final)}&accountName=NGO LE NGOC HUNG"
         caption = (
-            f"✅ Đơn hàng `{md(ma_don_final)}` đã được tạo thành công\\!\\n\\n"
-            f"📦 *THÔNG TIN SẢN PHẨM*\\n"
-            f"🔹 *Tên Sản Phẩm:* {md(info.get('ma_chon', ''))}\\n"
-            f"📝 *Thông Tin Đơn Hàng:* {md(info.get('thong_tin_don', ''))}\\n"
-            f"📆 *Ngày Bắt đầu:* {md(ngay_bat_dau_str)}\\n"
-            f"⏳ *Thời hạn:* {md(so_ngay)} ngày\\n"
-            f"📅 *Ngày Hết hạn:* {md(ngay_het_han)}\\n"
-            f"💵 *Giá bán:* {md(f'{gia_ban_value:,} đ')}\\n\\n"
-            f"👤 *THÔNG TIN KHÁCH HÀNG*\\n"
-            f"🔸 *Tên Khách Hàng:* {md(info.get('khach_hang', ''))}\\n\\n"
-            f"📢 *HƯỚNG DẪN THANH TOÁN*\\n"
-            f"📢 *STK:* 9183400998\\n"
+            f"✅ Đơn hàng `{md(ma_don_final)}` đã được tạo thành công!\n\n"
+            "📦 *THÔNG TIN SẢN PHẨM*\n"
+            f"🔹 *Tên Sản Phẩm:* {md(info.get('ma_chon', ''))}\n"
+            f"📝 *Thông Tin Đơn Hàng:* {md(info.get('thong_tin_don', ''))}\n"
+            f"📆 *Ngày Bắt đầu:* {md(ngay_bat_dau_str)}\n"
+            f"⏳ *Thời hạn:* {md(so_ngay)} ngày\n"
+            f"📅 *Ngày Hết hạn:* {md(ngay_het_han)}\n"
+            f"💵 *Giá bán:* {md(f'{gia_ban_value:,} đ')}\n\n"
+            "👤 *THÔNG TIN KHÁCH HÀNG*\n"
+            f"🔸 *Tên Khách Hàng:* {md(info.get('khach_hang', ''))}\n\n"
+            "📢 *HƯỚNG DẪN THANH TOÁN*\n"
+            "📢 *STK:* 9183400998\n"
             f"📢 *Nội dung:* Thanh toán `{md(ma_don_final)}`"
+        )
+
+        # Gửi VietQR
+        qr_url = (
+            "https://img.vietqr.io/image/VPB-9183400998-compact2.png"
+            f"?amount={gia_ban_value}&addInfo={requests.utils.quote(ma_don_final)}"
+            "&accountName=NGO LE NGOC HUNG"
         )
 
         # xóa message chính và gửi ảnh QR
@@ -620,6 +636,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         try:
             await context.bot.send_photo(chat_id=chat_id, photo=qr_url, caption=caption, parse_mode="MarkdownV2")
         except BadRequest:
+            # fallback plain text nếu Telegram vẫn bắt lỗi
             await context.bot.send_photo(chat_id=chat_id, photo=qr_url, caption=caption)
 
         await show_main_selector(update, context, edit=False)
@@ -629,7 +646,6 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         await safe_send_md(context.bot, chat_id, md(f"Đã có lỗi xảy ra khi hoàn tất đơn: {e}"))
     finally:
         return await end_add(update, context, success=True)
-
 
 async def end_add(update: Update, context: ContextTypes.DEFAULT_TYPE, success: bool = True) -> int:
     query = update.callback_query
