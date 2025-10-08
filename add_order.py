@@ -601,25 +601,23 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             await safe_edit_md(context.bot, chat_id, main_message_id, md(f"❌ Lỗi khi ghi đơn hàng vào Google Sheet: {e}"))
             return await end_add(update, context, success=False)
 
-        # ✅ Caption: dùng \n (không dùng \\n), md() chỉ bọc phần động
         ma_don_final = info.get('ma_don','')
         caption = (
-            f"✅ Đơn hàng `{md_soft(ma_don_final)}` đã được tạo thành công!\n\n"
+            f"✅ Đơn hàng `{md(ma_don_final)}` đã được tạo thành công!\n\n" 
             "📦 *THÔNG TIN SẢN PHẨM*\n"
-            f"🔹 *Tên Sản Phẩm:* {md_soft(info.get('ma_chon', ''))}\n"
-            f"📝 *Thông Tin Đơn Hàng:* {md_soft(info.get('thong_tin_don', ''))}\n"
-            f"📆 *Ngày Bắt đầu:* {md_soft(ngay_bat_dau_str)}\n"
-            f"⏳ *Thời hạn:* {md_soft(so_ngay)} ngày\n"
-            f"📅 *Ngày Hết hạn:* {md_soft(ngay_het_han)}\n"
-            f"💵 *Giá bán:* {md_soft(f'{gia_ban_value:,} đ')}\n\n"
+            f"🔹 *Tên Sản Phẩm:* {md(info.get('ma_chon', ''))}\n" 
+            f"📝 *Thông Tin Đơn Hàng:* {md(info.get('thong_tin_don', ''))}\n" 
+            f"📆 *Ngày Bắt đầu:* {md(ngay_bat_dau_str)}\n" 
+            f"⏳ *Thời hạn:* {md(so_ngay)} ngày\n" 
+            f"📅 *Ngày Hết hạn:* {md(ngay_het_han)}\n" 
+            f"💵 *Giá bán:* {md(f'{gia_ban_value:,} đ')}\n\n" 
             "👤 *THÔNG TIN KHÁCH HÀNG*\n"
-            f"🔸 *Tên Khách Hàng:* {md_soft(info.get('khach_hang', ''))}\n\n"
+            f"🔸 *Tên Khách Hàng:* {md(info.get('khach_hang', ''))}\n\n" 
             "📢 *HƯỚNG DẪN THANH TOÁN*\n"
             "📢 *STK:* 9183400998\n"
-            f"📢 *Nội dung:* Thanh toán `{md_soft(ma_don_final)}`"
+            f"📢 *Nội dung:* Thanh toán `{md(ma_don_final)}`" 
         )
 
-        # Gửi VietQR
         qr_url = (
             "https://img.vietqr.io/image/VPB-9183400998-compact2.png"
             f"?amount={gia_ban_value}&addInfo={requests.utils.quote(ma_don_final)}"

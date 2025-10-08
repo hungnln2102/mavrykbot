@@ -43,16 +43,10 @@ def _spreadsheet_id():
         return None
 
 def connect_to_sheet():
-    """
-    Trả về gspread.Spreadsheet đã mở sẵn.
-    - Nếu có SPREADSHEET_ID: open_by_key
-    - Nếu không: (fallback) open theo tên SHEET_NAME
-    """
     client = _client()
     sid = _spreadsheet_id()
     if not sid:
         raise RuntimeError(
-            "Chưa cấu hình SPREADSHEET_ID (nên đặt env hoặc SHEET_ID trong config.py)."
         )
     try:
         if sid.startswith("NAME:"):
@@ -85,7 +79,6 @@ def escape_mdv2(text: str) -> str:
     return re.sub(r'([_\*\[\]\(\)~`>\#\+\-\=\|\{\}\.!])', r'\\\1', text)
 
 def gen_mavn_id():
-    """Sinh ID MAVNxxxxx không trùng giữa Bảng Đơn Hàng & Bảng Nhập Hàng."""
     from column import SHEETS  # tránh import sớm gây circular
     ss = connect_to_sheet()
     order_ws = ss.worksheet(SHEETS["ORDER"])
@@ -101,7 +94,6 @@ def gen_mavn_id():
         n += 1
 
 def compute_dates(so_ngay: int, start_date: datetime | None = None):
-    """Tính (ngày đăng ký, hết hạn, còn lại)."""
     tz_today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     start = start_date or tz_today
     end = start + timedelta(days=int(so_ngay))
@@ -110,7 +102,6 @@ def compute_dates(so_ngay: int, start_date: datetime | None = None):
     return fmt(start), fmt(end), max(con_lai, 0)
 
 def to_int(v, default=0):
-    """Chuyển chuỗi chứa tiền tệ hoặc ký tự sang int an toàn."""
     if v is None:
         return default
     s = str(v)
