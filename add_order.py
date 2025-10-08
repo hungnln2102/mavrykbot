@@ -93,8 +93,9 @@ def md(text: str) -> str:
 def md_soft(text: str) -> str:
     if not text:
         return ""
-    text = text.replace("...", "…")
-    for ch in ['*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '=', '{', '}', '|', '.', '!']:
+    text = str(text).replace("...", "…")
+    specials = ['\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for ch in specials:
         text = text.replace(ch, f"\\{ch}")
     return text
 
