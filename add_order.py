@@ -601,23 +601,21 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             await safe_edit_md(context.bot, chat_id, main_message_id, md(f"❌ Lỗi khi ghi đơn hàng vào Google Sheet: {e}"))
             return await end_add(update, context, success=False)
         
-        ma_chon_display = info.get('ma_chon', '').replace('--', '–')
         ma_don_final = info.get('ma_don','')
         caption = (
-            f"✅ Đơn hàng `{md(ma_don_final)}` đã được tạo thành công!\n\n" 
-            "📦 *THÔNG TIN SẢN PHẨM*\n"
-            # BƯỚC 2: SỬ DỤNG biến mới đã khai báo ở đây
-            f"🔹 *Tên Sản Phẩm:* {md(ma_chon_display)}\n" 
-            f"📝 *Thông Tin Đơn Hàng:* {md(info.get('thong_tin_don', ''))}\n" 
-            f"📆 *Ngày Bắt đầu:* {md(ngay_bat_dau_str)}\n" 
-            f"⏳ *Thời hạn:* {md(so_ngay)} ngày\n" 
-            f"📅 *Ngày Hết hạn:* {md(ngay_het_han)}\n" 
-            f"💵 *Giá bán:* {md(f'{gia_ban_value:,} đ')}\n\n" 
-            "👤 *THÔNG TIN KHÁCH HÀNG*\n"
-            f"🔸 *Tên Khách Hàng:* {md(info.get('khach_hang', ''))}\n\n" 
-            "📢 *HƯỚNG DẪN THANH TOÁN*\n"
-            "📢 *STK:* 9183400998\n"
-            f"📢 *Nội dung:* Thanh toán `{md(ma_don_final)}`" 
+            f"✅ Đơn hàng `{escape_mdv2(ma_don_final)}` đã được tạo thành công\\!\n\n"
+            f"📦 *THÔNG TIN SẢN PHẨM*\n"
+            f"🔹 *Tên Sản Phẩm:* {escape_mdv2(info.get('ma_chon', ''))}\n"
+            f"📝 *Thông Tin Đơn Hàng:* {escape_mdv2(info.get('thong_tin_don', ''))}\n"
+            f"📆 *Ngày Bắt đầu:* {escape_mdv2(ngay_bat_dau_str)}\n"
+            f"⏳ *Thời hạn:* {escape_mdv2(so_ngay)} ngày\n"
+            f"📅 *Ngày Hết hạn:* {escape_mdv2(ngay_het_han)}\n"
+            f"💵 *Giá bán:* {escape_mdv2(f'{gia_ban_value:,} đ')}\n\n"
+            f"👤 *THÔNG TIN KHÁCH HÀNG*\n"
+            f"🔸 *Tên Khách Hàng:* {escape_mdv2(info.get('khach_hang', ''))}\n\n"
+            f"📢 *HƯỚNG DẪN THANH TOÁN*\n"
+            f"📢 *STK:* 9183400998\n"
+            f"📢 *Nội dung:* Thanh toán `{escape_mdv2(ma_don_final)}`"
         )
 
         qr_url = (
