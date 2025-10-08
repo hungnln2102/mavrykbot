@@ -90,15 +90,6 @@ def md(text: str) -> str:
         return ""
     return escape_mdv2(str(text).replace("...", "…"))
 
-def md_soft(text: str) -> str:
-    if not text:
-        return ""
-    text = str(text).replace("...", "…")
-    specials = ['\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-    for ch in specials:
-        text = text.replace(ch, f"\\{ch}")
-    return text
-
 async def safe_edit_md(bot, chat_id: int, message_id: int, text: str, reply_markup=None, try_plain: bool = True):
     try:
         return await bot.edit_message_text(
@@ -641,7 +632,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
     except Exception as e:
         logger.error(f"Lỗi không mong muốn trong hoan_tat_don: {e}")
-        await safe_send_md(context.bot, chat_id, md_soft(f"Đã có lỗi xảy ra khi hoàn tất đơn: {e}"))
+        await safe_send_md(context.bot, chat_id, escape_mdv2(f"Đã có lỗi xảy ra khi hoàn tất đơn: {e}"))
     finally:
         return await end_add(update, context, success=True)
 

@@ -418,8 +418,6 @@ async def on_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             row_data[IMPORT_COLUMNS["SO_NGAY_DA_DANG_KY"]] = so_ngay if int(so_ngay) > 0 else ""
             row_data[IMPORT_COLUMNS["HET_HAN"]] = ngay_het_han
             row_data[IMPORT_COLUMNS["NGUON"]] = payload.get("source", "")
-
-            # Giá nhập
             row_data[IMPORT_COLUMNS["GIA_NHAP"]] = to_int_vnd(payload.get("cost", 0))
 
             # Công thức
@@ -441,12 +439,14 @@ async def on_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 [row_data], value_input_option='USER_ENTERED'
             )
 
-            await query.edit_message_text("✅ Đã lưu đơn hàng thành công.", parse_mode="MarkdownV2")
+            # ✅ FIX 1: Escaped the period for MarkdownV2
+            await query.edit_message_text("✅ Đã lưu đơn hàng thành công\.", parse_mode="MarkdownV2")
             await show_main_selector(update, context, edit=False)
 
         except Exception as e:
             logger.exception("Lưu đơn hàng thất bại: %s", e)
-            await query.edit_text(f"❌ Lỗi khi lưu: {escape_mdv2(str(e))}", parse_mode="MarkdownV2")
+            # ✅ FIX 2: Corrected the method name from edit_text to edit_message_text
+            await query.edit_message_text(f"❌ Lỗi khi lưu: {escape_mdv2(str(e))}", parse_mode="MarkdownV2")
 
         context.user_data.clear()
         return ConversationHandler.END
