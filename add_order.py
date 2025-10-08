@@ -600,12 +600,14 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         except Exception as e:
             await safe_edit_md(context.bot, chat_id, main_message_id, md(f"❌ Lỗi khi ghi đơn hàng vào Google Sheet: {e}"))
             return await end_add(update, context, success=False)
-
+        
+        ma_chon_display = info.get('ma_chon', '').replace('--', '–')
         ma_don_final = info.get('ma_don','')
         caption = (
             f"✅ Đơn hàng `{md(ma_don_final)}` đã được tạo thành công!\n\n" 
             "📦 *THÔNG TIN SẢN PHẨM*\n"
-            f"🔹 *Tên Sản Phẩm:* {md(info.get('ma_chon', ''))}\n" 
+            # BƯỚC 2: SỬ DỤNG biến mới đã khai báo ở đây
+            f"🔹 *Tên Sản Phẩm:* {md(ma_chon_display)}\n" 
             f"📝 *Thông Tin Đơn Hàng:* {md(info.get('thong_tin_don', ''))}\n" 
             f"📆 *Ngày Bắt đầu:* {md(ngay_bat_dau_str)}\n" 
             f"⏳ *Thời hạn:* {md(so_ngay)} ngày\n" 
