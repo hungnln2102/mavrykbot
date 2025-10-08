@@ -11,7 +11,7 @@ from telegram.helpers import escape_markdown
 from utils import connect_to_sheet
 from menu import show_main_selector
 from add_order import tinh_ngay_het_han
-from column import SHEETS, ORDER_COLUMNS, PRICE_COLUMNS
+from column import SHEETS, ORDER_COLUMNS, TYGIA_IDX
 
 logger = logging.getLogger(__name__)
 
@@ -248,27 +248,41 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
     gia_nhap_moi, gia_ban_moi = None, None
     try:
-        sheet_bang_gia = connect_to_sheet().worksheet(SHEETS["PRICE"])
-        bang_gia_data = sheet_bang_gia.get_all_values()
+        # Đổi sang dùng sheet "Tỷ Giá"
+        sheet_ty_gia = connect_to_sheet().worksheet(SHEETS["EXCHANGE"])
+        ty_gia_data = sheet_ty_gia.get_all_values()
+        
+        headers = ty_gia_data[0] if ty_gia_data else []
         is_ctv = ma_don.upper().startswith("MAVC")
-        def clean_string(s): return re.sub(r'\s+', '', s or "").lower()
-        san_pham_clean = clean_string(san_pham)
-        nguon_hang_clean = clean_string(nguon_hang)
-        for row_gia in bang_gia_data[1:]:
-            ten_sp_bg = row_gia[PRICE_COLUMNS["TEN_SAN_PHAM"]] \
-                if len(row_gia) > PRICE_COLUMNS["TEN_SAN_PHAM"] else ""
-            nguon_bg = row_gia[PRICE_COLUMNS["NGUON"]] \
-                if len(row_gia) > PRICE_COLUMNS["NGUON"] else ""
-            if san_pham_clean in clean_string(ten_sp_bg) and nguon_hang_clean == clean_string(nguon_bg):
-                gia_nhap_raw = row_gia[PRICE_COLUMNS["GIA_NHAP"]] \
-                    if len(row_gia) > PRICE_COLUMNS["GIA_NHAP"] else "0"
-                gia_ban_col = PRICE_COLUMNS["GIA_BAN_CTV"] if is_ctv else PRICE_COLUMNS["GIA_BAN_LE"]
-                gia_ban_raw = row_gia[gia_ban_col] if len(row_gia) > gia_ban_col else "0"
-                _, gia_nhap_moi = chuan_hoa_gia(gia_nhap_raw)
-                _, gia_ban_moi = chuan_hoa_gia(gia_ban_raw)
+        
+        # Tìm cột tương ứng với nguồn hàng của đơn
+        nguon_col_idx = -1
+        for i, header_name in enumerate(headers):
+            if header_name.strip().lower() == nguon_hang.strip().lower():
+                nguon_col_idx = i
                 break
+
+        # Tìm dòng tương ứng với sản phẩm
+        product_row = None
+        for row in ty_gia_data[1:]:
+            ten_sp_tygia = row[TYGIA_IDX["SAN_PHAM"]] if len(row) > TYGIA_IDX["SAN_PHAM"] else ""
+            if ten_sp_tygia.strip().lower() == san_pham.strip().lower():
+                product_row = row
+                break
+
+        if product_row:
+            # Lấy giá bán lẻ/CTV từ các cột cố định
+            gia_ban_col_idx = TYGIA_IDX["GIA_CTV"] if is_ctv else TYGIA_IDX["GIA_KHACH"]
+            gia_ban_raw = product_row[gia_ban_col_idx] if len(product_row) > gia_ban_col_idx else "0"
+            _, gia_ban_moi = chuan_hoa_gia(gia_ban_raw)
+
+            # Lấy giá nhập tại ô giao điểm (dòng sản phẩm, cột nguồn)
+            if nguon_col_idx != -1 and len(product_row) > nguon_col_idx:
+                gia_nhap_raw = product_row[nguon_col_idx]
+                _, gia_nhap_moi = chuan_hoa_gia(gia_nhap_raw)
+
     except Exception as e:
-        logger.warning(f"Không thể truy cập '{SHEETS['PRICE']}': {e}. Sẽ dùng giá cũ.")
+        logger.warning(f"Không thể truy cập '{SHEETS['EXCHANGE']}': {e}. Sẽ dùng giá cũ.")
 
     final_gia_nhap = gia_nhap_moi if gia_nhap_moi is not None else chuan_hoa_gia(gia_nhap_cu)[1]
     final_gia_ban = gia_ban_moi if gia_ban_moi is not None else chuan_hoa_gia(gia_ban_cu)[1]

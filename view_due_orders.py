@@ -1,4 +1,4 @@
-# view_due_orders.py (Phiên bản hoàn chỉnh và ổn định)
+# view_due_orders.py (Đã cập nhật để dùng sheet 'Tỷ giá')
 
 import requests
 import re
@@ -11,11 +11,10 @@ from datetime import datetime, timedelta
 from io import BytesIO
 from menu import show_outer_menu
 from collections import OrderedDict
-from column import SHEETS, ORDER_COLUMNS, PRICE_COLUMNS
+from column import SHEETS, ORDER_COLUMNS, TYGIA_IDX
 import logging
 import asyncio
 
-# Cấu hình logging
 logger = logging.getLogger(__name__)
 
 
@@ -31,7 +30,7 @@ async def view_expired_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         spreadsheet = connect_to_sheet()
         order_sheet = spreadsheet.worksheet(SHEETS["ORDER"])
-        price_sheet = spreadsheet.worksheet(SHEETS["PRICE"])
+        price_sheet = spreadsheet.worksheet(SHEETS["EXCHANGE"])
         
         all_orders_data = order_sheet.get_all_values()
         price_list_data = price_sheet.get_all_values()
@@ -74,11 +73,11 @@ def get_gia_ban(ma_don, ma_san_pham, banggia_data, gia_ban_donhang=None):
     is_ctv = str(ma_don).upper().startswith("MAVC")
 
     for row in banggia_data[1:]:
-        if len(row) <= max(PRICE_COLUMNS["GIA_BAN_CTV"], PRICE_COLUMNS["GIA_BAN_LE"]): continue
-        sp_goc = str(row[PRICE_COLUMNS["TEN_SAN_PHAM"]]).strip().replace("–", "--").replace("—", "--")
+        if len(row) <= max(TYGIA_IDX["GIA_CTV"], TYGIA_IDX["GIA_KHACH"]): continue
+        sp_goc = str(row[TYGIA_IDX["SAN_PHAM"]]).strip().replace("–", "--").replace("—", "--")
         if sp_goc == ma_sp:
             try:
-                gia_str = row[PRICE_COLUMNS["GIA_BAN_CTV"]] if is_ctv else row[PRICE_COLUMNS["GIA_BAN_LE"]]
+                gia_str = row[TYGIA_IDX["GIA_CTV"]] if is_ctv else row[TYGIA_IDX["GIA_KHACH"]]
                 gia = clean_price_to_amount(gia_str)
                 if gia > 0: return gia
             except Exception as e:
@@ -89,7 +88,6 @@ def get_gia_ban(ma_don, ma_san_pham, banggia_data, gia_ban_donhang=None):
     return clean_price_to_amount(gia_ban_donhang) if gia_ban_donhang else 0
 
 def build_order_caption(row: list, price_list_data: list, index: int, total: int):
-    """Tạo caption cho đơn hàng, có kèm bộ đếm và escape ký tự triệt để."""
     def get_val(col_name):
         try: return row[ORDER_COLUMNS[col_name]].strip()
         except (IndexError, KeyError): return ""
@@ -120,8 +118,7 @@ def build_order_caption(row: list, price_list_data: list, index: int, total: int
         qr_image = BytesIO(response.content)
     except requests.exceptions.RequestException as e:
         logger.error(f"Lỗi tạo QR: {e}")
-        qr_image = None # SỬA LỖI: Trả về None khi có lỗi
-
+        qr_image = None
     if days_left <= 0: status_line = f"⛔️ Đã hết hạn {abs(days_left)} ngày trước"
     else: status_line = f"⏳ Còn lại {days_left} ngày"
     
@@ -144,7 +141,6 @@ def build_order_caption(row: list, price_list_data: list, index: int, total: int
         f"🔸 *Tên:* {ten_khach_md}\n" +
         (f"🔗 *Liên hệ:* {link_khach_md}\n" if get_val("LINK_KHACH") else "")
     )
-    # CẬP NHẬT: Thêm thông tin tài khoản vào footer
     footer = (
         escape_mdv2("━━━━━━━━━━━━━━━━━━━━━━\n") +
         escape_mdv2("💬 Để duy trì dịch vụ, quý khách vui lòng thanh toán theo thông tin dưới đây:\n\n") +
@@ -158,7 +154,6 @@ def build_order_caption(row: list, price_list_data: list, index: int, total: int
     return f"{header}\n{escape_mdv2('━━━━━━━━━━━━━━━━━━━━━━')}\n{body}\n{footer}", qr_image
 
 async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Gia hạn đơn hàng, thông báo bằng alert và hiển thị đơn tiếp theo từ cache."""
     query = update.callback_query
     await query.answer("Đang gia hạn...")
     ma_don = query.data.split("|")[1].strip()
@@ -208,7 +203,6 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_expired_order(update, context, "stay")
 
 async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE, direction: str):
-    """Hiển thị đơn hàng, xử lý thông minh trường hợp không tạo được QR code."""
     query = update.callback_query
     await query.answer()
     orders: OrderedDict = context.user_data.get("expired_orders", OrderedDict())
@@ -241,8 +235,6 @@ async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
         InlineKeyboardButton("🔚 Kết thúc", callback_data="back_to_menu_expired")
     ])
     reply_markup = InlineKeyboardMarkup(buttons)
-
-    # SỬA LỖI: Xử lý thông minh khi có hoặc không có ảnh QR
     if qr_image:
         try:
             qr_image.seek(0)
@@ -260,18 +252,16 @@ async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 logger.error(f"Lỗi Telegram không xác định: {e}")
                 await query.answer("❌ Đã xảy ra lỗi khi hiển thị đơn hàng.", show_alert=True)
     else:
-        # Nếu không có ảnh, chỉ sửa tin nhắn văn bản
         try:
             await query.message.edit_text(text=caption, parse_mode="MarkdownV2", reply_markup=reply_markup)
-            await query.answer("⚠️ Không thể tạo mã QR.", show_alert=False) # Thông báo ngầm
+            await query.answer("⚠️ Không thể tạo mã QR.", show_alert=False)
         except BadRequest as e:
              if "message is not modified" in str(e).lower():
-                 pass # Bỏ qua nếu tin nhắn không thay đổi
+                 pass
              else:
                  logger.error(f"Lỗi khi sửa text: {e}")
 
 async def delete_order_from_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Xóa đơn hàng, thông báo bằng alert và hiển thị đơn tiếp theo từ cache."""
     query = update.callback_query
     await query.answer("Đang xóa...")
     ma_don_to_delete = query.data.split("|")[1].strip()
@@ -307,7 +297,6 @@ async def delete_order_from_expired(update: Update, context: ContextTypes.DEFAUL
     await show_expired_order(update, context, "stay")
 
 async def back_to_menu_from_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Dọn dẹp context và quay về menu chính."""
     query = update.callback_query
     await query.answer()
     context.user_data.pop("expired_orders", None)
