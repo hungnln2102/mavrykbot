@@ -296,6 +296,10 @@ async def chon_ma_sp_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     ma_chon = query.data.split("|", 1)[1]
     context.user_data['ma_chon'] = ma_chon
 
+    so_ngay = extract_days_from_ma_sp(ma_chon)
+    if so_ngay > 0:
+        context.user_data['so_ngay'] = str(so_ngay)
+
     headers = context.user_data.get("tygia_headers", [])
     rows = context.user_data.get("tygia_rows_matched", [])
     SRC_START = TYGIA_IDX["SRC_START"]
@@ -410,20 +414,29 @@ async def nhap_nguon_moi_handler(update: Update, context: ContextTypes.DEFAULT_T
     return STATE_NHAP_GIA_NHAP
 
 
+# add_order.py
+
 async def nhap_gia_nhap_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     gia_nhap_raw = update.message.text.strip()
     await update.message.delete()
-    try:
-        # Loại bỏ đ, dấu chấm phẩy, rồi parse thành int
-        clean = re.sub(r"[^\d]", "", gia_nhap_raw)
-        context.user_data["gia_nhap_value"] = int(clean or 0)
-    except ValueError:
+    
+    clean = re.sub(r"[^\d]", "", gia_nhap_raw)
+
+    if not clean:
         await safe_edit_md(
             context.bot, update.effective_chat.id, context.user_data['main_message_id'],
-            text="⚠️ Giá nhập không hợp lệ. Vui lòng nhập lại:",
+            text="⚠️ Giá nhập không hợp lệ. Vui lòng chỉ nhập số:",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]])
         )
         return STATE_NHAP_GIA_NHAP
+
+    gia_nhap_value = int(clean)
+    
+    # Sửa lại: Luôn nhân với 1000 nếu giá trị lớn hơn 0
+    if gia_nhap_value > 0:
+        gia_nhap_value *= 1000
+    
+    context.user_data["gia_nhap_value"] = gia_nhap_value
 
     await safe_edit_md(
         context.bot, update.effective_chat.id, context.user_data['main_message_id'],
@@ -503,19 +516,29 @@ async def nhap_slot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         return STATE_NHAP_GIA_BAN
 
 
+# add_order.py
+
 async def nhap_gia_ban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     gia_ban_raw = update.message.text.strip()
     await update.message.delete()
-    try:
-        clean = re.sub(r"[^\d]", "", gia_ban_raw)
-        context.user_data["gia_ban_value"] = int(clean or 0)
-    except ValueError:
+    
+    clean = re.sub(r"[^\d]", "", gia_ban_raw)
+
+    if not clean:
         await safe_edit_md(
             context.bot, update.effective_chat.id, context.user_data['main_message_id'],
-            text="⚠️ Giá bán không hợp lệ. Vui lòng nhập lại:",
+            text="⚠️ Giá bán không hợp lệ. Vui lòng chỉ nhập số:",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]])
         )
         return STATE_NHAP_GIA_BAN
+
+    gia_ban_value = int(clean)
+
+    # Sửa lại: Luôn nhân với 1000 nếu giá trị lớn hơn 0
+    if gia_ban_value > 0:
+        gia_ban_value *= 1000
+
+    context.user_data["gia_ban_value"] = gia_ban_value
 
     keyboard = [
         [InlineKeyboardButton("⏭️ Bỏ Qua", callback_data="skip_note")],
