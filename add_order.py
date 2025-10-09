@@ -341,7 +341,18 @@ async def chon_nguon_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
 
-    nguon = query.data.split("|", 1)[1].strip()
+    # --- START OF FIX ---
+    parts = query.data.split("|", 1)
+    
+    # Check if the split was successful and created at least two parts
+    if len(parts) < 2:
+        logger.warning(f"Received unexpected callback_data format in chon_nguon_handler: {query.data}")
+        await query.edit_message_text("❌ Đã xảy ra lỗi, vui lòng thử lại từ đầu.")
+        return await end_add(update, context, success=False)
+
+    nguon = parts[1].strip()
+    # --- END OF FIX ---
+
     context.user_data["nguon"] = nguon
 
     headers = context.user_data.get("tygia_headers", [])
@@ -370,11 +381,7 @@ async def chon_nguon_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data["gia_nhap_value"] = gia_nhap
     context.user_data["gia_ban_value"] = gia_ban
 
-    await safe_edit_md(
-        context.bot, query.message.chat.id, query.message.message_id,
-        text="📝 Vui lòng nhập *Thông tin đơn hàng* \\(ví dụ: tài khoản, mật khẩu\\):",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]])
-    )
+    await query.edit_message_text("📝 Vui lòng nhập *Thông tin đơn hàng* (ví dụ: tài khoản, mật khẩu):", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]]))
     return STATE_NHAP_THONG_TIN
 
 
