@@ -219,7 +219,7 @@ async def nhap_ten_sp_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             context.bot, chat_id, main_message_id,
             text=(
                 "⚠️ Không có *mã sản phẩm còn hàng* trong *Tỷ giá*\n\n"
-                "✏️ Vui lòng nhập *Mã sản phẩm mới* \\(ví dụ: `Netflix--1m`\\)."
+                "✏️ Vui lòng nhập *Mã sản phẩm mới* \\(ví dụ: `Netflix--1m`\\)\\."
             ),
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]])
         )
