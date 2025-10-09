@@ -262,7 +262,7 @@ async def nhap_ma_moi_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     chat_id = query.message.chat.id
     await safe_edit_md(
         context.bot, chat_id, query.message.message_id,
-        text="✏️ Vui lòng nhập *Mã Sản Phẩm mới* \\(ví dụ: `Netflix--1m`\\):",
+        text="✏️ Vui lòng nhập *Mã Sản Phẩm mới* \\(ví dụ: `Netflix--1m`\\)\\:",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]])
     )
     return STATE_NHAP_MA_MOI
@@ -281,7 +281,7 @@ async def xu_ly_ma_moi_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     # nếu trước đó không có mã còn hàng -> bỏ qua check Tỷ giá, vào luôn nguồn mới
     await safe_edit_md(
         context.bot, chat_id, context.user_data['main_message_id'],
-        text="🚚 Vui lòng nhập *tên Nguồn hàng mới*:",
+        text="🚚 Vui lòng nhập *tên Nguồn hàng mới*\\:",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]])
     )
     return STATE_NHAP_NGUON_MOI

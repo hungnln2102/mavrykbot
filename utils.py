@@ -73,7 +73,6 @@ def generate_unique_id(sheet, loai_khach: str):
             return order_id
 
 def escape_mdv2(text: str) -> str:
-    import re
     if not isinstance(text, str):
         text = str(text)
     return re.sub(r'([_\*\[\]\(\)~`>\#\+\-\=\|\{\}\.!])', r'\\\1', text)
