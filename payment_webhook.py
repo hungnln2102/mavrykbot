@@ -5,33 +5,31 @@ import traceback
 from aiohttp import web
 from telegram import Bot
 
-# --- Import các thành phần từ file khác ---
+# Import other components
 from utils import connect_to_sheet
 from column import SHEETS
 from renewal_logic import run_renewal
-from telegram_bot import send_renewal_success_notification # Sẽ tạo ở bước sau
+from telegram_bot import send_renewal_success_notification
 
 logger = logging.getLogger(__name__)
 
-# Bí mật này dùng để tạo ra đường dẫn webhook duy nhất
 WEBHOOK_SECRET = "ef3ff711d58d498aa6147d60eb3923df"
 
 def extract_ma_don(text: str):
-    """Trích xuất các mã đơn hàng duy nhất từ nội dung."""
     if not text: return []
     return list(set(re.findall(r"MAV\w{5,}", text)))
 
 def process_payment(bot: Bot, payment_data: dict):
     """
-    Hàm xử lý nền: Ghi biên lai, kích hoạt gia hạn, và gửi thông báo.
+    Handles the background processing: logs receipts and only triggers notifications for successful renewals.
     """
     try:
         content = payment_data.get("content", "")
         ma_don_list = extract_ma_don(content)
         ma_don_str = " - ".join(ma_don_list) if ma_don_list else ""
 
-        # 1. GHI BIÊN LAI VÀO GOOGLE SHEET
-        logger.info(f"Bắt đầu xử lý webhook cho giao dịch: '{content}'")
+        # 1. LOG THE RECEIPT
+        logger.info(f"Processing webhook for transaction: '{content}'")
         sheet_receipt = connect_to_sheet().worksheet(SHEETS["RECEIPT"])
         new_row_values = [
             ma_don_str,
@@ -41,47 +39,44 @@ def process_payment(bot: Bot, payment_data: dict):
             content
         ]
         sheet_receipt.append_row(new_row_values)
-        logger.info(f"✅ Ghi biên lai thành công cho: {ma_don_str or 'Giao dịch không có mã đơn'}")
+        logger.info(f"✅ Receipt logged successfully for: {ma_don_str or 'Transaction without order ID'}")
 
-        # 2. KÍCH HOẠT GIA HẠN (NẾU CÓ MÃ ĐƠN)
+        # 2. TRIGGER RENEWAL LOGIC
         if not ma_don_list:
-            logger.info("Không tìm thấy mã đơn hàng, kết thúc xử lý.")
+            logger.info("No order ID found, ending process.")
             return
 
-        logger.info(f"Tìm thấy {len(ma_don_list)} mã đơn. Bắt đầu gia hạn...")
         for ma_don in ma_don_list:
-            logger.info(f"--> Đang xử lý gia hạn cho mã: {ma_don}")
-            success, details = run_renewal(ma_don)
+            logger.info(f"--> Checking ID: {ma_don}")
+            success, details, process_type = run_renewal(ma_don)
             
-            if success:
-                logger.info(f"✅ GIA HẠN THÀNH CÔNG cho mã {ma_don}.")
-                # Gọi hàm gửi thông báo (async) từ trong hàm sync
+            # ONLY SEND A NOTIFICATION ON SUCCESSFUL RENEWAL
+            if success and process_type == "renewal":
+                logger.info(f"✅ RENEWAL SUCCESSFUL for ID {ma_don}.")
                 asyncio.run(send_renewal_success_notification(bot, details))
             else:
-                logger.error(f"❌ GIA HẠN THẤT BẠI cho mã {ma_don}. Lý do: {details}")
-                # (Tùy chọn) Gửi thông báo lỗi cho admin
-                # asyncio.run(send_error_notification(bot, f"Lỗi gia hạn mã {ma_don}: {details}"))
+                # For all other cases (skipped, error), just log the outcome and do nothing else.
+                logger.info(f"Finished processing ID {ma_don} with status '{process_type}'. Reason: {details}")
 
     except Exception:
-        logger.error("❌ Lỗi nghiêm trọng trong hàm process_payment:")
+        logger.error("❌ A critical error occurred in the process_payment function:")
         traceback.print_exc()
 
 async def handle_payment(request: web.Request):
     """
-    Hàm lắng nghe (async): Nhận request từ Sepay và đưa vào hàng chờ xử lý.
+    Listens for webhook requests from Sepay and queues them for background processing.
     """
-    bot = request.app['bot']  # Lấy đối tượng bot từ main.py
+    bot = request.app['bot']
     try:
         data = await request.json()
-        # Đẩy việc xử lý nặng vào một luồng riêng để trả về phản hồi 200 cho Sepay ngay lập tức
         asyncio.create_task(
             asyncio.to_thread(process_payment, bot, data)
         )
         return web.Response(text="Webhook received", status=200)
     except Exception as e:
-        logger.error(f"❌ Lỗi khi nhận webhook: {e}")
+        logger.error(f"❌ Error receiving webhook: {e}")
         return web.Response(text="Bad Request", status=400)
 
-# Dòng này được import và sử dụng bởi main.py để thêm route vào web server
+# This is imported and used by main.py to add the route to the web server
 routes = web.RouteTableDef()
 routes.post(f"/api/payment/notify/{WEBHOOK_SECRET}")(handle_payment)
