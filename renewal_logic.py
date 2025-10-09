@@ -137,7 +137,10 @@ def run_renewal(order_id: str):
             "THONG_TIN_DON": row_data[ORDER_COLUMNS["THONG_TIN_DON"]],
             "SLOT": row_data[ORDER_COLUMNS["SLOT"]],
             "NGAY_DANG_KY": ngay_bat_dau_moi,
-            "HET_HAN": ngay_het_han_moi
+            "HET_HAN": ngay_het_han_moi,
+            "NGUON": nguon_hang,
+            "GIA_NHAP": final_gia_nhap,
+            "GIA_BAN": final_gia_ban
         }
         return True, updated_details
 
