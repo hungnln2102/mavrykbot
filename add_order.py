@@ -73,13 +73,17 @@ def to_int_vnd(s: str) -> int:
     if not s:
         return 0
     s = str(s).strip()
+    # Xóa các ký tự tiền tệ và khoảng trắng
     s = s.replace("đ", "").replace("₫", "").replace(" ", "")
-    s = s.replace(",", "")
-    m = re.findall(r"\d+\.?\d*", s)
+    # Xóa cả dấu chấm và dấu phẩy phân cách
+    s = s.replace(",", "").replace(".", "") # <<< SỬA LỖI Ở ĐÂY
+    
+    # Chỉ lấy phần số
+    m = re.findall(r"\d+", s)
     if not m:
         return 0
     try:
-        return int(float(m[0]))
+        return int(m[0])
     except Exception:
         return 0
 
