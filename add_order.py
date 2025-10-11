@@ -87,8 +87,6 @@ def to_int_vnd(s: str) -> int:
     except Exception:
         return 0
 
-# ---- MarkdownV2 helpers ----
-
 def md(text: str) -> str:
     if text is None:
         return ""
