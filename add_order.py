@@ -99,17 +99,19 @@ def to_int_vnd(s: str) -> int:
     if not s:
         return 0
     s = str(s).strip()
+    # Xóa các ký tự tiền tệ và khoảng trắng
     s = s.replace("đ", "").replace("₫", "").replace(" ", "")
-    s = s.replace(",", "")
-    m = re.findall(r"\d+\.?\d*", s)
+    # Xóa cả dấu chấm và dấu phẩy phân cách
+    s = s.replace(",", "").replace(".", "") # <<< SỬA LỖI Ở ĐÂY
+    
+    # Chỉ lấy phần số
+    m = re.findall(r"\d+", s)
     if not m:
         return 0
     try:
-        return int(float(m[0]))
+        return int(m[0])
     except Exception:
         return 0
-
-# ---- MarkdownV2 helpers ----
 
 def md(text: str) -> str:
     if text is None:
@@ -245,7 +247,7 @@ async def nhap_ten_sp_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             context.bot, chat_id, main_message_id,
             text=(
                 "⚠️ Không có *mã sản phẩm còn hàng* trong *Tỷ giá*\n\n"
-                "✏️ Vui lòng nhập *Mã sản phẩm mới* \\(ví dụ: `Netflix--1m`\\)."
+                "✏️ Vui lòng nhập *Mã sản phẩm mới* \\(ví dụ: `Netflix--1m`\\)\\."
             ),
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]])
         )
@@ -288,7 +290,7 @@ async def nhap_ma_moi_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     chat_id = query.message.chat.id
     await safe_edit_md(
         context.bot, chat_id, query.message.message_id,
-        text="✏️ Vui lòng nhập *Mã Sản Phẩm mới* \\(ví dụ: `Netflix--1m`\\):",
+        text="✏️ Vui lòng nhập *Mã Sản Phẩm mới* \\(ví dụ: `Netflix--1m`\\)\\:",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]])
     )
     return STATE_NHAP_MA_MOI
@@ -307,7 +309,7 @@ async def xu_ly_ma_moi_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     # nếu trước đó không có mã còn hàng -> bỏ qua check Tỷ giá, vào luôn nguồn mới
     await safe_edit_md(
         context.bot, chat_id, context.user_data['main_message_id'],
-        text="🚚 Vui lòng nhập *tên Nguồn hàng mới*:",
+        text="🚚 Vui lòng nhập *tên Nguồn hàng mới*\\:",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]])
     )
     return STATE_NHAP_NGUON_MOI

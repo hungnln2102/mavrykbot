@@ -332,7 +332,7 @@ async def delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                 order['row_index'] -= 1
             new_matched.append(order)
         context.user_data['matched_orders'] = new_matched
-        message = f"🗑️ Đơn hàng `{escape_mdv2(ma_don_to_delete)}` đã được xóa thành công!"
+        message = f"🗑️ Đơn hàng `{escape_mdv2(ma_don_to_delete)}` đã được xóa thành công\\!"
         await query.edit_message_text(message, parse_mode="MarkdownV2", reply_markup=None)
     except Exception as e:
         logger.error(f"Lỗi khi xóa đơn {ma_don_to_delete}: {e}")
