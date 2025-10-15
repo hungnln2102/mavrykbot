@@ -30,6 +30,32 @@ logger = logging.getLogger(__name__)
 # Tiện ích chung + MarkdownV2-safe
 # =============================
 
+def _parse_price(s: str) -> int:
+
+    try:
+        s = str(s).strip().replace("đ", "").replace("₫", "").replace(" ", "")
+        if not s:
+            return -1
+        s = s.replace(",", ".")
+
+        if "." not in s:
+            return int(s) * 1000
+
+        parts = s.split('.')
+        integer_part = "".join(parts[:-1])
+        decimal_part = parts[-1]
+
+        if not integer_part:
+            integer_part = "0"
+            
+        reformatted_string = f"{integer_part}.{decimal_part}"
+        
+        base_value = float(reformatted_string)
+        return int(base_value * 1000)
+
+    except (ValueError, IndexError):
+        return -1
+
 def _col_letter(col_idx: int) -> str:
     if col_idx < 0:
         return ""
@@ -420,9 +446,9 @@ async def nhap_gia_nhap_handler(update: Update, context: ContextTypes.DEFAULT_TY
     gia_nhap_raw = update.message.text.strip()
     await update.message.delete()
     
-    clean = re.sub(r"[^\d]", "", gia_nhap_raw)
+    gia_nhap_value = _parse_price(gia_nhap_raw)
 
-    if not clean:
+    if gia_nhap_value < 0:
         await safe_edit_md(
             context.bot, update.effective_chat.id, context.user_data['main_message_id'],
             text="⚠️ Giá nhập không hợp lệ. Vui lòng chỉ nhập số:",
@@ -430,12 +456,6 @@ async def nhap_gia_nhap_handler(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return STATE_NHAP_GIA_NHAP
 
-    gia_nhap_value = int(clean)
-    
-    # Sửa lại: Luôn nhân với 1000 nếu giá trị lớn hơn 0
-    if gia_nhap_value > 0:
-        gia_nhap_value *= 1000
-    
     context.user_data["gia_nhap_value"] = gia_nhap_value
 
     await safe_edit_md(
@@ -522,21 +542,15 @@ async def nhap_gia_ban_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     gia_ban_raw = update.message.text.strip()
     await update.message.delete()
     
-    clean = re.sub(r"[^\d]", "", gia_ban_raw)
+    gia_ban_value = _parse_price(gia_ban_raw)
 
-    if not clean:
+    if gia_ban_value < 0:
         await safe_edit_md(
             context.bot, update.effective_chat.id, context.user_data['main_message_id'],
             text="⚠️ Giá bán không hợp lệ. Vui lòng chỉ nhập số:",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_add")]])
         )
         return STATE_NHAP_GIA_BAN
-
-    gia_ban_value = int(clean)
-
-    # Sửa lại: Luôn nhân với 1000 nếu giá trị lớn hơn 0
-    if gia_ban_value > 0:
-        gia_ban_value *= 1000
 
     context.user_data["gia_ban_value"] = gia_ban_value
 
@@ -550,7 +564,6 @@ async def nhap_gia_ban_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return STATE_NHAP_NOTE
-
 
 async def nhap_note_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, skip: bool = False) -> int:
     query = update.callback_query
