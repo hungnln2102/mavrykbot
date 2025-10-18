@@ -69,18 +69,31 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_outer_menu(update, context)
 
 # === THÊM LẠI HÀM TESTJOB ===
+
 @user_only_filter
 async def run_test_job(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Hàm test tạm thời để kích hoạt job thủ công."""
     logger.info(">>> ADMIN ĐANG CHẠY TEST JOB THỦ CÔNG <<<")
     await update.message.reply_text("Đang chạy job 'Đơn Hết Hạn' thủ công... Vui lòng chờ.")
-    
+
     try:
+        # Vẫn chạy job như bình thường
         await check_due_orders_job(context)
+        # Báo cáo thành công
         await update.message.reply_text("✅ Đã chạy xong job. Vui lòng kiểm tra topic thông báo.")
+
     except Exception as e:
+        # === PHẦN SỬA LỖI ===
+        # 1. Ghi log lại lỗi
         logger.error(f"Lỗi khi chạy test job: {e}")
-        await update.message.reply_text(f"❌ Đã xảy ra lỗi khi chạy test job: {e}")
+
+        # 2. Báo cho bạn biết trong chat riêng
+        await update.message.reply_text(
+            f"❌ Đã xảy ra lỗi khi chạy test job. Chi tiết đã được gửi đến topic lỗi."
+        )
+
+        # 3. NÉM LỖI ra ngoài để error_handler (đã cấu hình) bắt
+        raise e
 # ============================
 
 @user_only_filter

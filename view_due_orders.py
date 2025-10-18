@@ -197,7 +197,7 @@ async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=target_group_id,
         message_thread_id=target_topic_id,
-        text=f"☀️ *THÔNG BÁO HẾT HẠN (7:00 Sáng)* ☀️\n\nPhát hiện *{total_due}* đơn hàng còn đúng 4 ngày nữa sẽ hết hạn:",
+        text=f"☀️ *THÔNG BÁO HẾT HẠN \(7:00 Sáng\)* ☀️\n\nPhát hiện *{total_due}* đơn hàng còn đúng 4 ngày nữa sẽ hết hạn:",
         parse_mode=ParseMode.MARKDOWN_V2
     )
     
