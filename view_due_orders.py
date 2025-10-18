@@ -113,8 +113,7 @@ def build_order_caption(row: list, price_list_data: list, index: int, total: int
 
 async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE):
     """
-    Chạy hàng ngày lúc 7:00 sáng, quét các đơn sắp hết hạn (CHÍNH XÁC = 4 ngày)
-    và gửi thông báo chi tiết.
+    (DEBUG) Chạy hàng ngày lúc 7:00 sáng, quét các đơn sắp hết hạn (== 4 ngày)
     """
     logger.info("Running daily due orders check job (logic == 4)...")
     
@@ -134,29 +133,45 @@ async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Job: Lỗi khi tải dữ liệu từ Google Sheet: {e}")
         return
 
-    # Bước 1: Quét và thu thập các đơn hàng hợp lệ
     due_orders_info = []
     rows = all_orders_data[1:]
     
+    # === BẮT ĐẦU DEBUG ===
+    logger.info(f"Job: Đã tải {len(rows)} hàng. Bắt đầu quét:")
+    # =====================
+
     for i, row in enumerate(rows, start=2):
         if not any(cell.strip() for cell in row): continue
         try:
-            if len(row) <= ORDER_COLUMNS["CON_LAI"]: continue
+            # Kiểm tra xem hàng có đủ cột không
+            if len(row) <= ORDER_COLUMNS["CON_LAI"] or len(row) <= ORDER_COLUMNS["ID_DON_HANG"]:
+                continue
+                
             con_lai_val_str = row[ORDER_COLUMNS["CON_LAI"]].strip()
-            if not con_lai_val_str: continue
+            
+            # === THÊM DÒNG DEBUG QUAN TRỌNG ===
+            ma_don_debug = row[ORDER_COLUMNS["ID_DON_HANG"]].strip()
+            if ma_don_debug: # Chỉ in ra nếu có mã đơn
+                 logger.info(f"Job quét: Mã Đơn {ma_don_debug}, Cột 'Còn Lại' thấy: '{con_lai_val_str}'")
+            # ==================================
+            
+            if not con_lai_val_str: # Bỏ qua nếu ô rỗng
+                continue 
 
             con_lai_val = int(float(con_lai_val_str))
             
-            # === THAY ĐỔI QUAN TRỌNG: TỪ <= 4 THÀNH == 4 ===
             if con_lai_val == 4:
-            # ============================================
-                # Tìm thấy đơn, thêm vào danh sách để xử lý
+                # === THÊM DÒNG DEBUG KHI TÌM THẤY ===
+                logger.info(f"Job: !!! TÌM THẤY ĐƠN HÀNG HỢP LỆ: {ma_don_debug} !!!")
+                # ====================================
                 due_orders_info.append({"row_data": row})
                 
-        except (ValueError, IndexError, TypeError):
+        except (ValueError, IndexError, TypeError) as e:
+            # Bỏ qua nếu giá trị không phải là số (ví dụ: đang gõ chữ)
+            logger.warning(f"Job: Bỏ qua hàng {i} do lỗi parse dữ liệu: {e}")
             continue
 
-    # Bước 2: Gửi thông báo
+    # (Phần còn lại của hàm giữ nguyên)
     target_group_id = config.DUE_ORDER_GROUP_ID
     target_topic_id = config.DUE_ORDER_TOPIC_ID
 
