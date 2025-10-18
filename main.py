@@ -72,6 +72,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_outer_menu(update, context)
 
 @user_only_filter
+async def run_test_job(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Hàm test tạm thời để kích hoạt job thủ công."""
+    logger.info(">>> ADMIN ĐANG CHẠY TEST JOB THỦ CÔNG <<<")
+    await update.message.reply_text("Đang chạy job 'Đơn Hết Hạn' thủ công... Vui lòng chờ.")
+    
+    try:
+        await check_due_orders_job(context)
+        await update.message.reply_text("✅ Đã chạy xong job. Vui lòng kiểm tra topic thông báo.")
+    except Exception as e:
+        logger.error(f"Lỗi khi chạy test job: {e}")
+        await update.message.reply_text(f"❌ Đã xảy ra lỗi khi chạy test job: {e}")
+
+@user_only_filter
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -143,7 +156,7 @@ async def main():
     # application.add_handler(CallbackQueryHandler(delete_order_from_expired, pattern=r"^delete_order_from_expired\|"))
     # application.add_handler(CallbackQueryHandler(back_to_menu_from_expired, pattern=r"^back_to_menu_expired$"))
     # =================================================
-
+    application.add_handler(CommandHandler("testjob", run_test_job))
     application.add_handler(get_add_order_conversation_handler()) # Dòng này bị lặp, nhưng không sao
     application.add_handler(CallbackQueryHandler(thanh_toan_nguon_handler, pattern='^payment_source$'))
     application.add_handler(CallbackQueryHandler(handle_exit_to_main, pattern="^exit_to_main$"))
