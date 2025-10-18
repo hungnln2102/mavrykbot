@@ -113,10 +113,10 @@ def build_order_caption(row: list, price_list_data: list, index: int, total: int
 
 async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE):
     """
-    Chạy hàng ngày lúc 7:00 sáng, quét các đơn sắp hết hạn (<= 4 ngày)
-    và gửi thông báo CHI TIẾT cho TỪNG đơn hàng.
+    Chạy hàng ngày lúc 7:00 sáng, quét các đơn sắp hết hạn (CHÍNH XÁC = 4 ngày)
+    và gửi thông báo chi tiết.
     """
-    logger.info("Running daily due orders check job (detailed)...")
+    logger.info("Running daily due orders check job (logic == 4)...")
     
     try:
         spreadsheet = connect_to_sheet()
@@ -147,7 +147,9 @@ async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE):
 
             con_lai_val = int(float(con_lai_val_str))
             
-            if con_lai_val <= 4:
+            # === THAY ĐỔI QUAN TRỌNG: TỪ <= 4 THÀNH == 4 ===
+            if con_lai_val == 4:
+            # ============================================
                 # Tìm thấy đơn, thêm vào danh sách để xử lý
                 due_orders_info.append({"row_data": row})
                 
@@ -164,12 +166,12 @@ async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE):
 
     total_due = len(due_orders_info)
     if total_due == 0:
-        logger.info("Job: Không có đơn hàng nào sắp hết hạn hôm nay.")
+        logger.info("Job: Không có đơn hàng nào còn 4 ngày nữa hết hạn.")
         try:
             await context.bot.send_message(
                 chat_id=target_group_id,
                 message_thread_id=target_topic_id,
-                text=escape_mdv2("✅ 7:00 Sáng: Không có đơn hàng nào sắp hết hạn (<= 4 ngày)."),
+                text=escape_mdv2("✅ 7:00 Sáng: Không có đơn hàng nào còn đúng 4 ngày nữa hết hạn."),
                 parse_mode=ParseMode.MARKDOWN_V2
             )
         except Exception as e:
@@ -180,7 +182,7 @@ async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=target_group_id,
         message_thread_id=target_topic_id,
-        text=f"☀️ *THÔNG BÁO HẾT HẠN (7:00 Sáng)* ☀️\n\nBắt đầu gửi thông báo chi tiết cho *{total_due}* đơn hàng...",
+        text=f"☀️ *THÔNG BÁO HẾT HẠN (7:00 Sáng)* ☀️\n\nPhát hiện *{total_due}* đơn hàng còn đúng 4 ngày nữa sẽ hết hạn:",
         parse_mode=ParseMode.MARKDOWN_V2
     )
     
@@ -211,7 +213,7 @@ async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE):
                     parse_mode=ParseMode.MARKDOWN_V2
                 )
             
-            await asyncio.sleep(1.5) # Thêm 1.5 giây nghỉ để tránh spam/rate limit
+            await asyncio.sleep(1.5) # Nghỉ để tránh spam/rate limit
 
         except Exception as e:
             logger.error(f"Job: Lỗi khi gửi chi tiết đơn hàng: {e}")
