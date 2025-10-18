@@ -3,7 +3,7 @@ import os
 import logging
 import datetime  
 import pytz      
-# === THAY ĐỔI 1: Thêm 'ADMIN_CHAT_ID' vào dòng import này ===
+# === ĐÃ SỬA: Import thêm ADMIN_CHAT_ID ===
 from config import BOT_TOKEN, logger, ADMIN_CHAT_ID 
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, ContextTypes,
@@ -36,7 +36,7 @@ import asyncio
 from payment_webhook import routes as sepay_routes
 
 
-# === THAY ĐỔI 2: Dùng biến ADMIN_CHAT_ID vừa import ===
+# === ĐÃ SỬA: Dùng biến ADMIN_CHAT_ID ===
 AUTHORIZED_USER_ID = int(ADMIN_CHAT_ID)
 
 
@@ -55,7 +55,6 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 def user_only_filter(func):
     async def wrapper(update, context):
         user_id = update.effective_user.id
-        # So sánh với biến đã import
         if user_id != AUTHORIZED_USER_ID:
             if update.message:
                 await update.message.reply_text("⛔ Bạn không có quyền sử dụng bot này.")
@@ -69,9 +68,20 @@ def user_only_filter(func):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_outer_menu(update, context)
 
-# === DỌN DẸP LỆNH TEST ===
-# Hàm 'run_test_job' và handler 'testjob' đã được xóa
-# ========================
+# === THÊM LẠI HÀM TESTJOB ===
+@user_only_filter
+async def run_test_job(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Hàm test tạm thời để kích hoạt job thủ công."""
+    logger.info(">>> ADMIN ĐANG CHẠY TEST JOB THỦ CÔNG <<<")
+    await update.message.reply_text("Đang chạy job 'Đơn Hết Hạn' thủ công... Vui lòng chờ.")
+    
+    try:
+        await check_due_orders_job(context)
+        await update.message.reply_text("✅ Đã chạy xong job. Vui lòng kiểm tra topic thông báo.")
+    except Exception as e:
+        logger.error(f"Lỗi khi chạy test job: {e}")
+        await update.message.reply_text(f"❌ Đã xảy ra lỗi khi chạy test job: {e}")
+# ============================
 
 @user_only_filter
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -123,6 +133,10 @@ async def main():
     )
     logger.info(f"Đã lên lịch quét đơn hết hạn hàng ngày lúc 07:00 sáng (Giờ VN).")
     
+    # === THÊM LẠI HANDLER TESTJOB ===
+    application.add_handler(CommandHandler("testjob", run_test_job))
+    # ===============================
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", start))
     application.add_handler(get_refund_conversation_handler())
