@@ -1,11 +1,10 @@
-# main.py (Đã sửa đổi hoàn chỉnh)
-
 from telegram import Update
 import os
 import logging
-import datetime  # <<< THÊM MỚI
-import pytz      # <<< THÊM MỚI
-from config import BOT_TOKEN, logger
+import datetime  
+import pytz      
+# === THAY ĐỔI 1: Thêm 'ADMIN_CHAT_ID' vào dòng import này ===
+from config import BOT_TOKEN, logger, ADMIN_CHAT_ID 
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, ContextTypes,
     AIORateLimiter
@@ -25,11 +24,7 @@ from View_order_unpaid import (
     mark_paid_unpaid_order,
     exit_unpaid
 )
-
-# === THAY ĐỔI 1: Chỉ import hàm job mới ===
 from view_due_orders import check_due_orders_job 
-# (Các hàm cũ như view_expired_orders, extend_order... đã bị xóa khỏi import)
-
 from Payment_Supply import (
     handle_exit_to_main,
     handle_source_paid,
@@ -41,7 +36,9 @@ import asyncio
 from payment_webhook import routes as sepay_routes
 
 
-AUTHORIZED_USER_ID = os.getenv("ADMIN_CHAT_ID")
+# === THAY ĐỔI 2: Dùng biến ADMIN_CHAT_ID vừa import ===
+AUTHORIZED_USER_ID = int(ADMIN_CHAT_ID)
+
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -58,6 +55,7 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 def user_only_filter(func):
     async def wrapper(update, context):
         user_id = update.effective_user.id
+        # So sánh với biến đã import
         if user_id != AUTHORIZED_USER_ID:
             if update.message:
                 await update.message.reply_text("⛔ Bạn không có quyền sử dụng bot này.")
@@ -71,18 +69,9 @@ def user_only_filter(func):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_outer_menu(update, context)
 
-@user_only_filter
-async def run_test_job(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Hàm test tạm thời để kích hoạt job thủ công."""
-    logger.info(">>> ADMIN ĐANG CHẠY TEST JOB THỦ CÔNG <<<")
-    await update.message.reply_text("Đang chạy job 'Đơn Hết Hạn' thủ công... Vui lòng chờ.")
-    
-    try:
-        await check_due_orders_job(context)
-        await update.message.reply_text("✅ Đã chạy xong job. Vui lòng kiểm tra topic thông báo.")
-    except Exception as e:
-        logger.error(f"Lỗi khi chạy test job: {e}")
-        await update.message.reply_text(f"❌ Đã xảy ra lỗi khi chạy test job: {e}")
+# === DỌN DẸP LỆNH TEST ===
+# Hàm 'run_test_job' và handler 'testjob' đã được xóa
+# ========================
 
 @user_only_filter
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -92,8 +81,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_main_selector(update, context, edit=True)
     elif query.data == 'unpaid_orders':
         await view_unpaid_orders(update, context)
-    # elif query.data == 'expired': # <<< ĐÃ XÓA
-    #     await view_expired_orders(update, context)
     elif query.data == 'back_to_menu':
         await show_outer_menu(update, context)
     elif query.data == 'delete':
@@ -125,7 +112,6 @@ async def payment_notify(request):
 async def main():
     application = Application.builder().token(BOT_TOKEN).rate_limiter(AIORateLimiter()).build()
 
-    # === THAY ĐỔI 2: Lên lịch cho Job chạy lúc 7:00 sáng ===
     vn_timezone = pytz.timezone('Asia/Ho_Chi_Minh')
     run_time = datetime.time(hour=7, minute=0, tzinfo=vn_timezone)
     
@@ -133,11 +119,10 @@ async def main():
     job_queue.run_daily(
         check_due_orders_job,
         time=run_time,
-        job_kwargs={'misfire_grace_time': 3600} # Chạy nếu bot bị lỡ giờ (trong 1h)
+        job_kwargs={'misfire_grace_time': 3600} 
     )
     logger.info(f"Đã lên lịch quét đơn hết hạn hàng ngày lúc 07:00 sáng (Giờ VN).")
-    # ====================================================
-
+    
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", start))
     application.add_handler(get_refund_conversation_handler())
@@ -146,18 +131,9 @@ async def main():
     application.add_handler(qr_conversation)
     application.add_handler(get_import_order_conversation_handler())
 
-    # === THAY ĐỔI 3: Xóa 'expired' khỏi handler này ===
     application.add_handler(CallbackQueryHandler(button_callback, pattern=r'^(menu_shop|back_to_menu|delete)$'))
 
-    # === THAY ĐỔI 4: Xóa toàn bộ handler của "expired" ===
-    # application.add_handler(CallbackQueryHandler(lambda u, c: show_expired_order(u, c, "next"), pattern=r"^next_expired$"))
-    # application.add_handler(CallbackQueryHandler(lambda u, c: show_expired_order(u, c, "prev"), pattern=r"^prev_expired$"))
-    # application.add_handler(CallbackQueryHandler(extend_order, pattern=r"^extend_order\|"))
-    # application.add_handler(CallbackQueryHandler(delete_order_from_expired, pattern=r"^delete_order_from_expired\|"))
-    # application.add_handler(CallbackQueryHandler(back_to_menu_from_expired, pattern=r"^back_to_menu_expired$"))
-    # =================================================
-    application.add_handler(CommandHandler("testjob", run_test_job))
-    application.add_handler(get_add_order_conversation_handler()) # Dòng này bị lặp, nhưng không sao
+    application.add_handler(get_add_order_conversation_handler()) 
     application.add_handler(CallbackQueryHandler(thanh_toan_nguon_handler, pattern='^payment_source$'))
     application.add_handler(CallbackQueryHandler(handle_exit_to_main, pattern="^exit_to_main$"))
     application.add_handler(CallbackQueryHandler(handle_source_paid, pattern="^source_paid\\|"))
