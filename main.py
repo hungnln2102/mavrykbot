@@ -1,6 +1,10 @@
+# main.py (Đã sửa đổi hoàn chỉnh)
+
 from telegram import Update
 import os
 import logging
+import datetime  # <<< THÊM MỚI
+import pytz      # <<< THÊM MỚI
 from config import BOT_TOKEN, logger
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, ContextTypes,
@@ -13,6 +17,7 @@ from add_order import get_add_order_conversation_handler, start_add, cancel_add
 from update_order import get_update_order_conversation_handler
 from refund import get_refund_conversation_handler
 from import_order import get_import_order_conversation_handler
+from error_handler import error_handler
 from View_order_unpaid import (
     view_unpaid_orders,
     show_unpaid_order,
@@ -20,13 +25,11 @@ from View_order_unpaid import (
     mark_paid_unpaid_order,
     exit_unpaid
 )
-from view_due_orders import (
-    view_expired_orders,
-    show_expired_order,
-    extend_order,
-    delete_order_from_expired,
-    back_to_menu_from_expired
-)
+
+# === THAY ĐỔI 1: Chỉ import hàm job mới ===
+from view_due_orders import check_due_orders_job 
+# (Các hàm cũ như view_expired_orders, extend_order... đã bị xóa khỏi import)
+
 from Payment_Supply import (
     handle_exit_to_main,
     handle_source_paid,
@@ -38,7 +41,7 @@ import asyncio
 from payment_webhook import routes as sepay_routes
 
 
-AUTHORIZED_USER_ID = 510811276
+AUTHORIZED_USER_ID = os.getenv("ADMIN_CHAT_ID")
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -76,8 +79,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_main_selector(update, context, edit=True)
     elif query.data == 'unpaid_orders':
         await view_unpaid_orders(update, context)
-    elif query.data == 'expired':
-        await view_expired_orders(update, context)
+    # elif query.data == 'expired': # <<< ĐÃ XÓA
+    #     await view_expired_orders(update, context)
     elif query.data == 'back_to_menu':
         await show_outer_menu(update, context)
     elif query.data == 'delete':
@@ -97,7 +100,7 @@ async def healthcheck(request):
     return web.Response(text="Bot is alive!")
 
 async def payment_notify(request):
-    token = request.match_info.get('token')  # lấy phần token trong URL
+    token = request.match_info.get('token')
     try:
         data = await request.json()
     except Exception:
@@ -108,6 +111,20 @@ async def payment_notify(request):
 
 async def main():
     application = Application.builder().token(BOT_TOKEN).rate_limiter(AIORateLimiter()).build()
+
+    # === THAY ĐỔI 2: Lên lịch cho Job chạy lúc 7:00 sáng ===
+    vn_timezone = pytz.timezone('Asia/Ho_Chi_Minh')
+    run_time = datetime.time(hour=7, minute=0, tzinfo=vn_timezone)
+    
+    job_queue = application.job_queue
+    job_queue.run_daily(
+        check_due_orders_job,
+        time=run_time,
+        job_kwargs={'misfire_grace_time': 3600} # Chạy nếu bot bị lỡ giờ (trong 1h)
+    )
+    logger.info(f"Đã lên lịch quét đơn hết hạn hàng ngày lúc 07:00 sáng (Giờ VN).")
+    # ====================================================
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", start))
     application.add_handler(get_refund_conversation_handler())
@@ -115,13 +132,19 @@ async def main():
     application.add_handler(get_update_order_conversation_handler())
     application.add_handler(qr_conversation)
     application.add_handler(get_import_order_conversation_handler())
-    application.add_handler(CallbackQueryHandler(button_callback, pattern=r'^(menu_shop|expired|back_to_menu|delete)$'))
-    application.add_handler(CallbackQueryHandler(lambda u, c: show_expired_order(u, c, "next"), pattern=r"^next_expired$"))
-    application.add_handler(CallbackQueryHandler(lambda u, c: show_expired_order(u, c, "prev"), pattern=r"^prev_expired$"))
-    application.add_handler(CallbackQueryHandler(extend_order, pattern=r"^extend_order\|"))
-    application.add_handler(get_add_order_conversation_handler())
-    application.add_handler(CallbackQueryHandler(delete_order_from_expired, pattern=r"^delete_order_from_expired\|"))
-    application.add_handler(CallbackQueryHandler(back_to_menu_from_expired, pattern=r"^back_to_menu_expired$"))
+
+    # === THAY ĐỔI 3: Xóa 'expired' khỏi handler này ===
+    application.add_handler(CallbackQueryHandler(button_callback, pattern=r'^(menu_shop|back_to_menu|delete)$'))
+
+    # === THAY ĐỔI 4: Xóa toàn bộ handler của "expired" ===
+    # application.add_handler(CallbackQueryHandler(lambda u, c: show_expired_order(u, c, "next"), pattern=r"^next_expired$"))
+    # application.add_handler(CallbackQueryHandler(lambda u, c: show_expired_order(u, c, "prev"), pattern=r"^prev_expired$"))
+    # application.add_handler(CallbackQueryHandler(extend_order, pattern=r"^extend_order\|"))
+    # application.add_handler(CallbackQueryHandler(delete_order_from_expired, pattern=r"^delete_order_from_expired\|"))
+    # application.add_handler(CallbackQueryHandler(back_to_menu_from_expired, pattern=r"^back_to_menu_expired$"))
+    # =================================================
+
+    application.add_handler(get_add_order_conversation_handler()) # Dòng này bị lặp, nhưng không sao
     application.add_handler(CallbackQueryHandler(thanh_toan_nguon_handler, pattern='^payment_source$'))
     application.add_handler(CallbackQueryHandler(handle_exit_to_main, pattern="^exit_to_main$"))
     application.add_handler(CallbackQueryHandler(handle_source_paid, pattern="^source_paid\\|"))
@@ -132,6 +155,8 @@ async def main():
     application.add_handler(CallbackQueryHandler(delete_unpaid_order, pattern="^delete_unpaid\\|"))
     application.add_handler(CallbackQueryHandler(mark_paid_unpaid_order, pattern="^paid_unpaid\\|"))
     application.add_handler(CallbackQueryHandler(exit_unpaid, pattern="^exit_unpaid$"))
+    
+    application.add_error_handler(error_handler)
     await application.initialize()
     await application.start()
 

@@ -1,71 +1,27 @@
-# view_due_orders.py (Đã cập nhật để dùng sheet 'Tỷ giá')
+# view_due_orders.py (Cập nhật: Dùng Job để gửi thông báo chi tiết)
 
 import requests
 import re
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram import Update, InputMediaPhoto
 from telegram.ext import ContextTypes
 from telegram.error import BadRequest
+from telegram.constants import ParseMode
 from utils import connect_to_sheet, escape_mdv2
-from add_order import tinh_ngay_het_han
-from datetime import datetime, timedelta
 from io import BytesIO
-from menu import show_outer_menu
-from collections import OrderedDict
 from column import SHEETS, ORDER_COLUMNS, TYGIA_IDX
 import logging
 import asyncio
+import config 
 
 logger = logging.getLogger(__name__)
 
+# --------------------------------------------------------------------
+# CÁC HÀM HỖ TRỢ (Khôi phục lại để dùng cho build_order_caption)
+# --------------------------------------------------------------------
 
 def clean_price_to_amount(text):
     """Chuyển đổi chuỗi giá thành số nguyên."""
     return int(str(text).replace(",", "").replace(".", "").replace("₫", "").replace("đ", "").replace(" ", ""))
-
-async def view_expired_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Bắt đầu quy trình, tải và cache toàn bộ dữ liệu cần thiết."""
-    query = update.callback_query
-    await query.answer("Đang tải dữ liệu, vui lòng chờ...")
-
-    try:
-        spreadsheet = connect_to_sheet()
-        order_sheet = spreadsheet.worksheet(SHEETS["ORDER"])
-        price_sheet = spreadsheet.worksheet(SHEETS["EXCHANGE"])
-        
-        all_orders_data = order_sheet.get_all_values()
-        price_list_data = price_sheet.get_all_values()
-        
-        if len(all_orders_data) <= 1:
-            await query.edit_message_text(escape_mdv2("✅ Không có dữ liệu đơn hàng nào."), parse_mode="MarkdownV2")
-            return
-
-    except Exception as e:
-        logger.error(f"Lỗi khi tải dữ liệu từ Google Sheet: {e}")
-        await query.edit_message_text(escape_mdv2("❌ Đã xảy ra lỗi khi tải dữ liệu từ Google Sheet."), parse_mode="MarkdownV2")
-        return
-
-    rows = all_orders_data[1:]
-    expired_orders = OrderedDict()
-    
-    for i, row in enumerate(rows, start=2):
-        if not any(cell.strip() for cell in row): continue
-        try:
-            con_lai_val = float(row[ORDER_COLUMNS["CON_LAI"]].strip())
-            ma_don = row[ORDER_COLUMNS["ID_DON_HANG"]].strip()
-            if ma_don and con_lai_val <= 4:
-                expired_orders[ma_don] = {"data": row, "row_index": i}
-        except (ValueError, IndexError):
-            continue
-
-    if not expired_orders:
-        await query.edit_message_text(escape_mdv2("✅ Hiện không có đơn hàng nào sắp hết hạn."))
-        return
-
-    context.user_data["expired_orders"] = expired_orders
-    context.user_data["price_list_data"] = price_list_data
-    context.user_data["expired_index"] = 0
-    
-    await show_expired_order(update, context, direction="stay")
 
 def get_gia_ban(ma_don, ma_san_pham, banggia_data, gia_ban_donhang=None):
     """Lấy giá bán chính xác từ dữ liệu cache."""
@@ -89,6 +45,7 @@ def get_gia_ban(ma_don, ma_san_pham, banggia_data, gia_ban_donhang=None):
 
 def build_order_caption(row: list, price_list_data: list, index: int, total: int):
     def get_val(col_name):
+        # Hàm con helper để lấy dữ liệu an toàn
         try: return row[ORDER_COLUMNS[col_name]].strip()
         except (IndexError, KeyError): return ""
     
@@ -119,6 +76,7 @@ def build_order_caption(row: list, price_list_data: list, index: int, total: int
     except requests.exceptions.RequestException as e:
         logger.error(f"Lỗi tạo QR: {e}")
         qr_image = None
+        
     if days_left <= 0: status_line = f"⛔️ Đã hết hạn {abs(days_left)} ngày trước"
     else: status_line = f"⏳ Còn lại {days_left} ngày"
     
@@ -153,153 +111,114 @@ def build_order_caption(row: list, price_list_data: list, index: int, total: int
     )
     return f"{header}\n{escape_mdv2('━━━━━━━━━━━━━━━━━━━━━━')}\n{body}\n{footer}", qr_image
 
-async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer("Đang gia hạn...")
-    ma_don = query.data.split("|")[1].strip()
-
-    orders: OrderedDict = context.user_data.get("expired_orders", OrderedDict())
-    order_info = orders.get(ma_don)
+async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Chạy hàng ngày lúc 7:00 sáng, quét các đơn sắp hết hạn (<= 4 ngày)
+    và gửi thông báo CHI TIẾT cho TỪNG đơn hàng.
+    """
+    logger.info("Running daily due orders check job (detailed)...")
     
-    if not order_info:
-        await query.answer("❌ Lỗi: Không tìm thấy đơn hàng trong cache.", show_alert=True)
-        return
-
-    row_data, row_idx = order_info["data"], order_info["row_index"]
-    
-    product = row_data[ORDER_COLUMNS["SAN_PHAM"]].strip()
-    matched = re.search(r"--(\d+)m", product)
-    if not matched:
-        await query.answer("⚠️ Không xác định được thời hạn từ sản phẩm.", show_alert=True)
-        return
-    so_thang = int(matched.group(1)); so_ngay = 365 if so_thang == 12 else so_thang * 30
-    ngay_cu_str = row_data[ORDER_COLUMNS["HET_HAN"]].strip()
     try:
-        dt_cu = datetime.strptime(ngay_cu_str, "%d/%m/%Y")
-    except ValueError:
-        await query.answer(f"⚠️ Định dạng ngày hết hạn '{ngay_cu_str}' không hợp lệ.", show_alert=True)
-        return
-    dt_moi = dt_cu + timedelta(days=1)
-    ngay_bat_dau_moi = dt_moi.strftime("%d/%m/%Y")
-    ngay_het_han_moi = tinh_ngay_het_han(ngay_bat_dau_moi, str(so_ngay))
-    price_list_data = context.user_data.get("price_list_data", [])
-    gia_ban_moi = get_gia_ban(ma_don, product, price_list_data, row_data[ORDER_COLUMNS["GIA_BAN"]])
-
-    try:
-        sheet = connect_to_sheet().worksheet(SHEETS["ORDER"])
-        range_1 = f'G{row_idx}:I{row_idx}'
-        values_1 = [[ngay_bat_dau_moi, str(so_ngay), ngay_het_han_moi]]
-        sheet.update(range_1, values_1, value_input_option='USER_ENTERED')
-        sheet.update_cell(row_idx, ORDER_COLUMNS["GIA_BAN"] + 1, str(gia_ban_moi))
+        spreadsheet = connect_to_sheet()
+        order_sheet = spreadsheet.worksheet(SHEETS["ORDER"])
+        price_sheet = spreadsheet.worksheet(SHEETS["EXCHANGE"])
         
-        await query.answer("✅ Gia hạn thành công!", show_alert=True)
-    except Exception as e:
-        logger.error(f"Lỗi khi cập nhật hàng loạt cho đơn {ma_don}: {e}")
-        await query.answer("❌ Lỗi khi cập nhật Google Sheet.", show_alert=True)
-        return
-
-    orders.pop(ma_don)
-    context.user_data["expired_orders"] = orders
-    await show_expired_order(update, context, "stay")
-
-async def show_expired_order(update: Update, context: ContextTypes.DEFAULT_TYPE, direction: str):
-    query = update.callback_query
-    await query.answer()
-    orders: OrderedDict = context.user_data.get("expired_orders", OrderedDict())
-    index: int = context.user_data.get("expired_index", 0)
-    
-    if not orders:
-        await query.edit_message_text(escape_mdv2("✅ Không còn đơn hàng nào để hiển thị."))
-        await show_outer_menu(update, context, is_edit=False)
-        return
-
-    keys, total_orders = list(orders.keys()), len(orders)
-    if direction == "next": index += 1
-    elif direction == "prev": index -= 1
-    index = max(0, min(index, total_orders - 1))
-    context.user_data["expired_index"] = index
-
-    ma_don, order_info = keys[index], orders[keys[index]]
-    price_list_data = context.user_data.get("price_list_data", [])
-    caption, qr_image = build_order_caption(order_info["data"], price_list_data, index, total_orders)
-
-    nav_buttons = []
-    if index > 0: nav_buttons.append(InlineKeyboardButton("⬅️ Back", callback_data="prev_expired"))
-    if index < total_orders - 1: nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data="next_expired"))
-    
-    buttons = []
-    if nav_buttons: buttons.append(nav_buttons)
-    buttons.append([
-        InlineKeyboardButton("🔄 Gia hạn", callback_data=f"extend_order|{ma_don}"),
-        InlineKeyboardButton("🗑️ Xóa đơn", callback_data=f"delete_order_from_expired|{ma_don}"),
-        InlineKeyboardButton("🔚 Kết thúc", callback_data="back_to_menu_expired")
-    ])
-    reply_markup = InlineKeyboardMarkup(buttons)
-    if qr_image:
-        try:
-            qr_image.seek(0)
-            await query.message.edit_media(media=InputMediaPhoto(media=qr_image, caption=caption, parse_mode="MarkdownV2"), reply_markup=reply_markup)
-        except BadRequest as e:
-            if "message to edit not found" in str(e).lower() or "file must be non-empty" in str(e).lower():
-                logger.warning(f"Lỗi edit_media ('{e}'), thử gửi mới.")
-                try: 
-                    await query.message.delete()
-                except BadRequest:
-                    pass
-                qr_image.seek(0)
-                await query.message.chat.send_photo(photo=qr_image, caption=caption, parse_mode="MarkdownV2", reply_markup=reply_markup)
-            else:
-                logger.error(f"Lỗi Telegram không xác định: {e}")
-                await query.answer("❌ Đã xảy ra lỗi khi hiển thị đơn hàng.", show_alert=True)
-    else:
-        try:
-            await query.message.edit_text(text=caption, parse_mode="MarkdownV2", reply_markup=reply_markup)
-            await query.answer("⚠️ Không thể tạo mã QR.", show_alert=False)
-        except BadRequest as e:
-             if "message is not modified" in str(e).lower():
-                 pass
-             else:
-                 logger.error(f"Lỗi khi sửa text: {e}")
-
-async def delete_order_from_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer("Đang xóa...")
-    ma_don_to_delete = query.data.split("|")[1].strip()
-    
-    orders: OrderedDict = context.user_data.get("expired_orders", OrderedDict())
-    order_info = orders.get(ma_don_to_delete)
-    
-    if not order_info:
-        await query.answer("❌ Lỗi: Không tìm thấy đơn hàng trong cache.", show_alert=True)
-        return
-
-    row_idx_to_delete = order_info.get("row_index")
-    try:
-        sheet = connect_to_sheet().worksheet(SHEETS["ORDER"])
-        sheet.delete_rows(row_idx_to_delete)
-        await query.answer("🗑️ Xóa đơn hàng thành công!", show_alert=True)
-    except Exception as e:
-        logger.error(f"Lỗi khi xóa đơn {ma_don_to_delete}: {e}")
-        await query.answer("❌ Lỗi khi xóa đơn trên Google Sheet.", show_alert=True)
-        return
+        all_orders_data = order_sheet.get_all_values()
+        price_list_data = price_sheet.get_all_values() # Cần cho hàm get_gia_ban
         
-    updated_orders = OrderedDict()
-    for key, value in orders.items():
-        if key == ma_don_to_delete:
+        if len(all_orders_data) <= 1:
+            logger.info("Job: Không có dữ liệu đơn hàng nào.")
+            return
+
+    except Exception as e:
+        logger.error(f"Job: Lỗi khi tải dữ liệu từ Google Sheet: {e}")
+        return
+
+    # Bước 1: Quét và thu thập các đơn hàng hợp lệ
+    due_orders_info = []
+    rows = all_orders_data[1:]
+    
+    for i, row in enumerate(rows, start=2):
+        if not any(cell.strip() for cell in row): continue
+        try:
+            if len(row) <= ORDER_COLUMNS["CON_LAI"]: continue
+            con_lai_val_str = row[ORDER_COLUMNS["CON_LAI"]].strip()
+            if not con_lai_val_str: continue
+
+            con_lai_val = int(float(con_lai_val_str))
+            
+            if con_lai_val <= 4:
+                # Tìm thấy đơn, thêm vào danh sách để xử lý
+                due_orders_info.append({"row_data": row})
+                
+        except (ValueError, IndexError, TypeError):
             continue
-        current_row_index = value["row_index"]
-        if current_row_index > row_idx_to_delete:
-            value["row_index"] = current_row_index - 1
-        updated_orders[key] = value
 
-    context.user_data["expired_orders"] = updated_orders
+    # Bước 2: Gửi thông báo
+    target_group_id = config.DUE_ORDER_GROUP_ID
+    target_topic_id = config.DUE_ORDER_TOPIC_ID
+
+    if not target_group_id or not target_topic_id:
+        logger.error("Job: DUE_ORDER_GROUP_ID hoặc DUE_ORDER_TOPIC_ID chưa được cài đặt trong config!")
+        return
+
+    total_due = len(due_orders_info)
+    if total_due == 0:
+        logger.info("Job: Không có đơn hàng nào sắp hết hạn hôm nay.")
+        try:
+            await context.bot.send_message(
+                chat_id=target_group_id,
+                message_thread_id=target_topic_id,
+                text=escape_mdv2("✅ 7:00 Sáng: Không có đơn hàng nào sắp hết hạn (<= 4 ngày)."),
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+        except Exception as e:
+             logger.error(f"Job: Không thể gửi thông báo 'không có đơn': {e}")
+        return
+
+    # Gửi tin nhắn thông báo bắt đầu
+    await context.bot.send_message(
+        chat_id=target_group_id,
+        message_thread_id=target_topic_id,
+        text=f"☀️ *THÔNG BÁO HẾT HẠN (7:00 Sáng)* ☀️\n\nBắt đầu gửi thông báo chi tiết cho *{total_due}* đơn hàng...",
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
     
-    await show_expired_order(update, context, "stay")
+    # Loop và gửi từng đơn hàng
+    for index, order_info in enumerate(due_orders_info):
+        try:
+            caption, qr_image = build_order_caption(
+                row=order_info["row_data"],
+                price_list_data=price_list_data,
+                index=index,
+                total=total_due
+            )
+            
+            if qr_image:
+                qr_image.seek(0)
+                await context.bot.send_photo(
+                    chat_id=target_group_id,
+                    message_thread_id=target_topic_id,
+                    photo=qr_image,
+                    caption=caption,
+                    parse_mode=ParseMode.MARKDOWN_V2
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=target_group_id,
+                    message_thread_id=target_topic_id,
+                    text=caption,
+                    parse_mode=ParseMode.MARKDOWN_V2
+                )
+            
+            await asyncio.sleep(1.5) # Thêm 1.5 giây nghỉ để tránh spam/rate limit
 
-async def back_to_menu_from_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    context.user_data.pop("expired_orders", None)
-    context.user_data.pop("price_list_data", None)
-    context.user_data.pop("expired_index", None)
-    await show_outer_menu(update, context)
+        except Exception as e:
+            logger.error(f"Job: Lỗi khi gửi chi tiết đơn hàng: {e}")
+            await context.bot.send_message(
+                chat_id=config.ERROR_GROUP_ID, # Gửi lỗi vào topic Lỗi
+                message_thread_id=config.ERROR_TOPIC_ID,
+                text=f"Job 'Đơn Hết Hạn' thất bại khi gửi 1 đơn:\n`{e}`"
+            )
+
+    logger.info(f"Job: Đã gửi xong {total_due} thông báo chi tiết.")

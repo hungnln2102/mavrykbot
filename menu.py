@@ -71,9 +71,6 @@ async def show_main_selector(
         ],
         [
             InlineKeyboardButton("📥 Nhập Hàng", callback_data="nhap_hang"),
-        ],
-        [
-            InlineKeyboardButton("⏰ Đơn Đến Hạn", callback_data="expired"),
             InlineKeyboardButton("⬅️ Về menu chính", callback_data="back_to_menu"),
         ],
     ]
