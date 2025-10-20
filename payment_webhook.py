@@ -77,4 +77,4 @@ async def handle_payment(request: web.Request):
         return web.Response(text="Bad Request", status=400)
 
 routes = web.RouteTableDef()
-routes.post(f"/api/payment/notify/{WEBHOOK_SECRET}")(handle_payment)
+routes.post(f"/bot/payment_sepay/{WEBHOOK_SECRET}")(handle_payment)

@@ -192,8 +192,8 @@ async def main():
     app.add_routes(sepay_routes)
     app["application"] = application
     app["bot"] = bot
-    app.router.add_get("/", healthcheck)
-    app.router.add_post("/webhook", handle_webhook)
+    app.router.add_get("/bot/health", healthcheck)
+    app.router.add_post("/bot/telegram_webhook", handle_webhook)
     app.router.add_post("/api/payment/notify/{token}", payment_notify)
     runner = web.AppRunner(app)
     await runner.setup()
