@@ -1,4 +1,4 @@
-# view_due_orders.py (Cập nhật: Dùng Job để gửi thông báo chi tiết)
+# view_due_orders.py (Cập nhật: Dùng Job để gửi thông báo chi tiết và tự tính toán ngày)
 
 import requests
 import re
@@ -12,6 +12,7 @@ from column import SHEETS, ORDER_COLUMNS, TYGIA_IDX
 import logging
 import asyncio
 import config 
+from datetime import datetime, date  # <--- ĐÃ THÊM
 
 logger = logging.getLogger(__name__)
 
@@ -43,16 +44,23 @@ def get_gia_ban(ma_don, ma_san_pham, banggia_data, gia_ban_donhang=None):
     if isinstance(gia_ban_donhang, list): gia_ban_donhang = gia_ban_donhang[0] if gia_ban_donhang else ""
     return clean_price_to_amount(gia_ban_donhang) if gia_ban_donhang else 0
 
-def build_order_caption(row: list, price_list_data: list, index: int, total: int):
+def build_order_caption(row: list, price_list_data: list, index: int, total: int, forced_days_left: int = None): # <--- ĐÃ THÊM forced_days_left
     def get_val(col_name):
         # Hàm con helper để lấy dữ liệu an toàn
         try: return row[ORDER_COLUMNS[col_name]].strip()
         except (IndexError, KeyError): return ""
     
     ma_don_raw, product_raw = get_val("ID_DON_HANG"), get_val("SAN_PHAM")
-    con_lai_raw = get_val("CON_LAI")
     
-    days_left = int(float(con_lai_raw)) if con_lai_raw and con_lai_raw.replace('.', '', 1).isdigit() else 0
+    # === THAY ĐỔI LOGIC TÍNH NGÀY CÒN LẠI ===
+    if forced_days_left is not None:
+        days_left = forced_days_left
+    else:
+        # Giữ lại logic cũ làm dự phòng (nếu không được truyền vào)
+        con_lai_raw = get_val("CON_LAI")
+        days_left = int(float(con_lai_raw)) if con_lai_raw and con_lai_raw.replace('.', '', 1).isdigit() else 0
+    # === KẾT THÚC THAY ĐỔI ===
+    
     gia_int = get_gia_ban(ma_don_raw, product_raw, price_list_data, row[ORDER_COLUMNS["GIA_BAN"]])
     gia_value_raw = "{:,} đ".format(gia_int) if gia_int > 0 else "Chưa xác định"
 
@@ -77,6 +85,7 @@ def build_order_caption(row: list, price_list_data: list, index: int, total: int
         logger.error(f"Lỗi tạo QR: {e}")
         qr_image = None
         
+    # Logic status_line này giờ sẽ dùng `days_left` chính xác
     if days_left <= 0: status_line = f"⛔️ Đã hết hạn {abs(days_left)} ngày trước"
     else: status_line = f"⏳ Còn lại {days_left} ngày"
     
@@ -113,7 +122,8 @@ def build_order_caption(row: list, price_list_data: list, index: int, total: int
 
 async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE):
     """
-    (DEBUG) Chạy hàng ngày lúc 7:00 sáng, quét các đơn sắp hết hạn (== 4 ngày)
+    (CẬP NHẬT) Chạy hàng ngày lúc 7:00 sáng, quét các đơn sắp hết hạn (== 4 ngày)
+    Bot sẽ tự tính toán ngày còn lại dựa trên cột HET_HAN.
     """
     logger.info("Running daily due orders check job (logic == 4)...")
     
@@ -136,38 +146,51 @@ async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE):
     due_orders_info = []
     rows = all_orders_data[1:]
     
-    # === BẮT ĐẦU DEBUG ===
-    logger.info(f"Job: Đã tải {len(rows)} hàng. Bắt đầu quét:")
-    # =====================
+    # === BẮT ĐẦU LOGIC MỚI ===
+    today = date.today()
+    logger.info(f"Job: Đã tải {len(rows)} hàng. Bắt đầu quét (Ngày quét: {today.strftime('%d/%m/%Y')})")
+    # ========================
 
     for i, row in enumerate(rows, start=2):
         if not any(cell.strip() for cell in row): continue
         try:
             # Kiểm tra xem hàng có đủ cột không
-            if len(row) <= ORDER_COLUMNS["CON_LAI"] or len(row) <= ORDER_COLUMNS["ID_DON_HANG"]:
+            if len(row) <= ORDER_COLUMNS["HET_HAN"] or len(row) <= ORDER_COLUMNS["ID_DON_HANG"]:
                 continue
                 
-            con_lai_val_str = row[ORDER_COLUMNS["CON_LAI"]].strip()
-            
-            # === THÊM DÒNG DEBUG QUAN TRỌNG ===
             ma_don_debug = row[ORDER_COLUMNS["ID_DON_HANG"]].strip()
-            if ma_don_debug: # Chỉ in ra nếu có mã đơn
-                 logger.info(f"Job quét: Mã Đơn {ma_don_debug}, Cột 'Còn Lại' thấy: '{con_lai_val_str}'")
-            # ==================================
+            het_han_str = row[ORDER_COLUMNS["HET_HAN"]].strip()
             
-            if not con_lai_val_str: # Bỏ qua nếu ô rỗng
+            # Bỏ qua nếu không có mã đơn hoặc ngày hết hạn
+            if not ma_don_debug or not het_han_str: 
                 continue 
 
-            con_lai_val = int(float(con_lai_val_str))
+            try:
+                # Parse ngày hết hạn (Giả sử định dạng là DD/MM/YYYY)
+                het_han_date = datetime.strptime(het_han_str, "%d/%m/%Y").date()
+            except ValueError:
+                logger.warning(f"Job quét: Bỏ qua mã đơn {ma_don_debug}, lỗi parse ngày: '{het_han_str}'")
+                continue
             
-            if con_lai_val == 4:
+            # TỰ TÍNH TOÁN SỐ NGÀY CÒN LẠI
+            days_remaining = (het_han_date - today).days
+            
+            # === DEBUG LOGIC MỚI ===
+            # (Bạn có thể bật lại dòng log này nếu cần debug sâu)
+            # logger.info(f"Job quét: Mã Đơn {ma_don_debug}, Hết hạn: {het_han_str}, Tính toán còn: {days_remaining} ngày")
+            # ========================
+            
+            if days_remaining == 4:
                 # === THÊM DÒNG DEBUG KHI TÌM THẤY ===
-                logger.info(f"Job: !!! TÌM THẤY ĐƠN HÀNG HỢP LỆ: {ma_don_debug} !!!")
+                logger.info(f"Job: !!! TÌM THẤY ĐƠN HÀNG HỢP LỆ: {ma_don_debug} (Còn {days_remaining} ngày) !!!")
                 # ====================================
-                due_orders_info.append({"row_data": row})
+                due_orders_info.append({
+                    "row_data": row,
+                    "calculated_days_left": days_remaining # Lưu lại số ngày đã tính
+                })
                 
-        except (ValueError, IndexError, TypeError) as e:
-            # Bỏ qua nếu giá trị không phải là số (ví dụ: đang gõ chữ)
+        except (IndexError, TypeError, ValueError) as e:
+            # Bỏ qua nếu giá trị không phải là số/ngày
             logger.warning(f"Job: Bỏ qua hàng {i} do lỗi parse dữ liệu: {e}")
             continue
 
@@ -204,12 +227,15 @@ async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE):
     # Loop và gửi từng đơn hàng
     for index, order_info in enumerate(due_orders_info):
         try:
+            # === THAY ĐỔI CÁCH GỌI HÀM ===
             caption, qr_image = build_order_caption(
                 row=order_info["row_data"],
                 price_list_data=price_list_data,
                 index=index,
-                total=total_due
+                total=total_due,
+                forced_days_left=order_info["calculated_days_left"] # Truyền số ngày đã tính vào
             )
+            # === KẾT THÚC THAY ĐỔI ===
             
             if qr_image:
                 qr_image.seek(0)
