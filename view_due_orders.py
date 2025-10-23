@@ -1,4 +1,4 @@
-# view_due_orders.py (Cập nhật: Dùng Job để gửi thông báo chi tiết và tự tính toán ngày)
+# view_due_orders.py (Cập nhật: Thêm logic xóa hàng khi < 0 ngày)
 
 import requests
 import re
@@ -12,12 +12,12 @@ from column import SHEETS, ORDER_COLUMNS, TYGIA_IDX
 import logging
 import asyncio
 import config 
-from datetime import datetime, date  # <--- ĐÃ THÊM
+from datetime import datetime, date
 
 logger = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------
-# CÁC HÀM HỖ TRỢ (Khôi phục lại để dùng cho build_order_caption)
+# CÁC HÀM HỖ TRỢ
 # --------------------------------------------------------------------
 
 def clean_price_to_amount(text):
@@ -44,22 +44,19 @@ def get_gia_ban(ma_don, ma_san_pham, banggia_data, gia_ban_donhang=None):
     if isinstance(gia_ban_donhang, list): gia_ban_donhang = gia_ban_donhang[0] if gia_ban_donhang else ""
     return clean_price_to_amount(gia_ban_donhang) if gia_ban_donhang else 0
 
-def build_order_caption(row: list, price_list_data: list, index: int, total: int, forced_days_left: int = None): # <--- ĐÃ THÊM forced_days_left
+def build_order_caption(row: list, price_list_data: list, index: int, total: int, forced_days_left: int = None):
+    """Xây dựng nội dung tin nhắn cho đơn hàng."""
     def get_val(col_name):
-        # Hàm con helper để lấy dữ liệu an toàn
         try: return row[ORDER_COLUMNS[col_name]].strip()
         except (IndexError, KeyError): return ""
     
     ma_don_raw, product_raw = get_val("ID_DON_HANG"), get_val("SAN_PHAM")
     
-    # === THAY ĐỔI LOGIC TÍNH NGÀY CÒN LẠI ===
     if forced_days_left is not None:
         days_left = forced_days_left
     else:
-        # Giữ lại logic cũ làm dự phòng (nếu không được truyền vào)
         con_lai_raw = get_val("CON_LAI")
         days_left = int(float(con_lai_raw)) if con_lai_raw and con_lai_raw.replace('.', '', 1).isdigit() else 0
-    # === KẾT THÚC THAY ĐỔI ===
     
     gia_int = get_gia_ban(ma_don_raw, product_raw, price_list_data, row[ORDER_COLUMNS["GIA_BAN"]])
     gia_value_raw = "{:,} đ".format(gia_int) if gia_int > 0 else "Chưa xác định"
@@ -85,7 +82,6 @@ def build_order_caption(row: list, price_list_data: list, index: int, total: int
         logger.error(f"Lỗi tạo QR: {e}")
         qr_image = None
         
-    # Logic status_line này giờ sẽ dùng `days_left` chính xác
     if days_left <= 0: status_line = f"⛔️ Đã hết hạn {abs(days_left)} ngày trước"
     else: status_line = f"⏳ Còn lại {days_left} ngày"
     
@@ -120,12 +116,18 @@ def build_order_caption(row: list, price_list_data: list, index: int, total: int
     )
     return f"{header}\n{escape_mdv2('━━━━━━━━━━━━━━━━━━━━━━')}\n{body}\n{footer}", qr_image
 
+# --------------------------------------------------------------------
+# HÀM JOB (LOGIC CHÍNH)
+# --------------------------------------------------------------------
+
 async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE):
     """
-    (CẬP NHẬT) Chạy hàng ngày lúc 7:00 sáng, quét các đơn sắp hết hạn (== 4 ngày)
+    (CẬP NHẬT) Chạy hàng ngày lúc 7:00 sáng.
+    1. Quét các đơn sắp hết hạn (== 4 ngày) -> Gửi thông báo.
+    2. Quét các đơn đã hết hạn (< 0 ngày) -> Xóa hàng.
     Bot sẽ tự tính toán ngày còn lại dựa trên cột HET_HAN.
     """
-    logger.info("Running daily due orders check job (logic == 4)...")
+    logger.info("Running daily due orders check job (Notify == 4, Delete < 0)...")
     
     try:
         spreadsheet = connect_to_sheet()
@@ -133,7 +135,7 @@ async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE):
         price_sheet = spreadsheet.worksheet(SHEETS["EXCHANGE"])
         
         all_orders_data = order_sheet.get_all_values()
-        price_list_data = price_sheet.get_all_values() # Cần cho hàm get_gia_ban
+        price_list_data = price_sheet.get_all_values() 
         
         if len(all_orders_data) <= 1:
             logger.info("Job: Không có dữ liệu đơn hàng nào.")
@@ -143,18 +145,20 @@ async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Job: Lỗi khi tải dữ liệu từ Google Sheet: {e}")
         return
 
-    due_orders_info = []
-    rows = all_orders_data[1:]
+    # Tạo 2 danh sách để chứa kết quả quét
+    due_orders_info = []         # Danh sách đơn cần thông báo
+    rows_to_delete_indices = []  # Danh sách CHỈ SỐ HÀNG cần xóa
     
-    # === BẮT ĐẦU LOGIC MỚI ===
+    rows = all_orders_data[1:] # Dữ liệu hàng, bỏ qua tiêu đề
+    
     today = date.today()
     logger.info(f"Job: Đã tải {len(rows)} hàng. Bắt đầu quét (Ngày quét: {today.strftime('%d/%m/%Y')})")
-    # ========================
 
-    for i, row in enumerate(rows, start=2):
+    # 'enumerate(rows, start=2)' vì hàng 1 là tiêu đề, dữ liệu bắt đầu từ hàng 2
+    for i, row in enumerate(rows, start=2): 
         if not any(cell.strip() for cell in row): continue
         try:
-            # Kiểm tra xem hàng có đủ cột không
+            # Kiểm tra xem hàng có đủ cột cần thiết không
             if len(row) <= ORDER_COLUMNS["HET_HAN"] or len(row) <= ORDER_COLUMNS["ID_DON_HANG"]:
                 continue
                 
@@ -166,7 +170,7 @@ async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE):
                 continue 
 
             try:
-                # Parse ngày hết hạn (Giả sử định dạng là DD/MM/YYYY)
+                # Parse ngày hết hạn
                 het_han_date = datetime.strptime(het_han_str, "%d/%m/%Y").date()
             except ValueError:
                 logger.warning(f"Job quét: Bỏ qua mã đơn {ma_don_debug}, lỗi parse ngày: '{het_han_str}'")
@@ -175,26 +179,24 @@ async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE):
             # TỰ TÍNH TOÁN SỐ NGÀY CÒN LẠI
             days_remaining = (het_han_date - today).days
             
-            # === DEBUG LOGIC MỚI ===
-            # (Bạn có thể bật lại dòng log này nếu cần debug sâu)
-            # logger.info(f"Job quét: Mã Đơn {ma_don_debug}, Hết hạn: {het_han_str}, Tính toán còn: {days_remaining} ngày")
-            # ========================
-            
+            # Phân loại hành động
             if days_remaining == 4:
-                # === THÊM DÒNG DEBUG KHI TÌM THẤY ===
-                logger.info(f"Job: !!! TÌM THẤY ĐƠN HÀNG HỢP LỆ: {ma_don_debug} (Còn {days_remaining} ngày) !!!")
-                # ====================================
+                # 1. THÔNG BÁO
+                logger.info(f"Job: [THÔNG BÁO] Tìm thấy đơn: {ma_don_debug} (Còn {days_remaining} ngày)")
                 due_orders_info.append({
                     "row_data": row,
-                    "calculated_days_left": days_remaining # Lưu lại số ngày đã tính
+                    "calculated_days_left": days_remaining 
                 })
+            elif days_remaining < 0:
+                # 2. XÓA HÀNG
+                logger.info(f"Job: [XÓA] Tìm thấy đơn: {ma_don_debug} (Hết hạn {abs(days_remaining)} ngày, Hàng {i})")
+                rows_to_delete_indices.append(i) # Thêm CHỈ SỐ HÀNG (ví dụ: 5, 10, 20)
                 
         except (IndexError, TypeError, ValueError) as e:
-            # Bỏ qua nếu giá trị không phải là số/ngày
             logger.warning(f"Job: Bỏ qua hàng {i} do lỗi parse dữ liệu: {e}")
             continue
 
-    # (Phần còn lại của hàm giữ nguyên)
+    # Lấy ID Group/Topic từ config
     target_group_id = config.DUE_ORDER_GROUP_ID
     target_topic_id = config.DUE_ORDER_TOPIC_ID
 
@@ -202,6 +204,7 @@ async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE):
         logger.error("Job: DUE_ORDER_GROUP_ID hoặc DUE_ORDER_TOPIC_ID chưa được cài đặt trong config!")
         return
 
+    # --- HÀNH ĐỘNG 1: GỬI THÔNG BÁO (cho đơn == 4 ngày) ---
     total_due = len(due_orders_info)
     if total_due == 0:
         logger.info("Job: Không có đơn hàng nào còn 4 ngày nữa hết hạn.")
@@ -214,54 +217,93 @@ async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE):
             )
         except Exception as e:
              logger.error(f"Job: Không thể gửi thông báo 'không có đơn': {e}")
-        return
-
-    # Gửi tin nhắn thông báo bắt đầu
-    await context.bot.send_message(
-        chat_id=target_group_id,
-        message_thread_id=target_topic_id,
-        text=f"☀️ *THÔNG BÁO HẾT HẠN \(7:00 Sáng\)* ☀️\n\nPhát hiện *{total_due}* đơn hàng còn đúng 4 ngày nữa sẽ hết hạn:",
-        parse_mode=ParseMode.MARKDOWN_V2
-    )
-    
-    # Loop và gửi từng đơn hàng
-    for index, order_info in enumerate(due_orders_info):
-        try:
-            # === THAY ĐỔI CÁCH GỌI HÀM ===
-            caption, qr_image = build_order_caption(
-                row=order_info["row_data"],
-                price_list_data=price_list_data,
-                index=index,
-                total=total_due,
-                forced_days_left=order_info["calculated_days_left"] # Truyền số ngày đã tính vào
-            )
-            # === KẾT THÚC THAY ĐỔI ===
-            
-            if qr_image:
-                qr_image.seek(0)
-                await context.bot.send_photo(
-                    chat_id=target_group_id,
-                    message_thread_id=target_topic_id,
-                    photo=qr_image,
-                    caption=caption,
-                    parse_mode=ParseMode.MARKDOWN_V2
+    else:
+        # Gửi tin nhắn thông báo bắt đầu
+        await context.bot.send_message(
+            chat_id=target_group_id,
+            message_thread_id=target_topic_id,
+            text=f"☀️ *THÔNG BÁO HẾT HẠN \(7:00 Sáng\)* ☀️\n\nPhát hiện *{total_due}* đơn hàng còn đúng 4 ngày nữa sẽ hết hạn:",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        
+        # Loop và gửi từng đơn hàng
+        for index, order_info in enumerate(due_orders_info):
+            try:
+                caption, qr_image = build_order_caption(
+                    row=order_info["row_data"],
+                    price_list_data=price_list_data,
+                    index=index,
+                    total=total_due,
+                    forced_days_left=order_info["calculated_days_left"] 
                 )
-            else:
+                
+                if qr_image:
+                    qr_image.seek(0)
+                    await context.bot.send_photo(
+                        chat_id=target_group_id,
+                        message_thread_id=target_topic_id,
+                        photo=qr_image,
+                        caption=caption,
+                        parse_mode=ParseMode.MARKDOWN_V2
+                    )
+                else:
+                    await context.bot.send_message(
+                        chat_id=target_group_id,
+                        message_thread_id=target_topic_id,
+                        text=caption,
+                        parse_mode=ParseMode.MARKDOWN_V2
+                    )
+                
+                await asyncio.sleep(1.5) # Nghỉ để tránh spam/rate limit
+
+            except Exception as e:
+                logger.error(f"Job: Lỗi khi gửi chi tiết đơn hàng: {e}")
                 await context.bot.send_message(
-                    chat_id=target_group_id,
-                    message_thread_id=target_topic_id,
-                    text=caption,
-                    parse_mode=ParseMode.MARKDOWN_V2
+                    chat_id=config.ERROR_GROUP_ID, 
+                    message_thread_id=config.ERROR_TOPIC_ID,
+                    text=f"Job 'Đơn Hết Hạn' thất bại khi GỬI 1 đơn:\n`{e}`"
                 )
-            
-            await asyncio.sleep(1.5) # Nghỉ để tránh spam/rate limit
-
-        except Exception as e:
-            logger.error(f"Job: Lỗi khi gửi chi tiết đơn hàng: {e}")
+        logger.info(f"Job: Đã gửi xong {total_due} thông báo chi tiết.")
+    
+    # --- HÀNH ĐỘNG 2: XÓA CÁC HÀNG HẾT HẠN (cho đơn < 0 ngày) ---
+    total_deleted = len(rows_to_delete_indices)
+    if total_deleted > 0:
+        logger.info(f"Job: Bắt đầu xóa {total_deleted} hàng đã hết hạn (< 0 ngày)...")
+        
+        # Sắp xếp ngược (quan trọng!) để xóa từ dưới lên, tránh lỗi index
+        rows_to_delete_indices.sort(reverse=True)
+        
+        delete_count_success = 0
+        for row_index in rows_to_delete_indices:
+            try:
+                order_sheet.delete_rows(row_index)
+                delete_count_success += 1
+                logger.info(f"Job: Đã xóa hàng {row_index}.")
+                await asyncio.sleep(1.2) # Thêm delay để tránh rate limit của Google API (lỗi 429)
+            except Exception as e:
+                logger.error(f"Job: Lỗi khi xóa hàng {row_index}: {e}")
+                # Gửi lỗi vào topic Lỗi
+                try:
+                    await context.bot.send_message(
+                        chat_id=config.ERROR_GROUP_ID, 
+                        message_thread_id=config.ERROR_TOPIC_ID,
+                        text=f"Job 'Đơn Hết Hạn' thất bại khi XÓA hàng {row_index}:\n`{e}`"
+                    )
+                except Exception as e_bot:
+                    logger.error(f"Job: Lỗi khi gửi thông báo lỗi xóa hàng: {e_bot}")
+        
+        logger.info(f"Job: Đã xóa xong {delete_count_success}/{total_deleted} hàng hết hạn.")
+        
+        # Gửi thông báo tổng kết vào group
+        try:
             await context.bot.send_message(
-                chat_id=config.ERROR_GROUP_ID, # Gửi lỗi vào topic Lỗi
-                message_thread_id=config.ERROR_TOPIC_ID,
-                text=f"Job 'Đơn Hết Hạn' thất bại khi gửi 1 đơn:\n`{e}`"
+                chat_id=target_group_id,
+                message_thread_id=target_topic_id,
+                text=f"🗑️ Đã tự động dọn dẹp và xóa thành công *{delete_count_success}* đơn hàng \(đã hết hạn\).",
+                parse_mode=ParseMode.MARKDOWN_V2
             )
-
-    logger.info(f"Job: Đã gửi xong {total_due} thông báo chi tiết.")
+        except Exception as e:
+            logger.error(f"Job: Lỗi khi gửi thông báo tổng kết xóa: {e}")
+            
+    else:
+        logger.info("Job: Không có đơn hàng nào (< 0 ngày) cần xóa.")
