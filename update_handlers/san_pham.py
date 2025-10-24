@@ -12,11 +12,11 @@ from .common import (
     show_order_after_edit,
     handle_sheet_update_error
 )
-from ..utils import connect_to_sheet, escape_mdv2
+from utils import connect_to_sheet, escape_mdv2
 # Import normalize_product_duration trực tiếp từ update_order.py nếu cần
 # Hoặc chuyển nó vào utils.py nếu nhiều nơi dùng
-from ..update_order import normalize_product_duration
-from ..column import SHEETS, ORDER_COLUMNS
+from update_order import normalize_product_duration
+from column import SHEETS, ORDER_COLUMNS
 
 # --- IMPORT STATES (để return về state cũ nếu validate lỗi) ---
 from ..update_order import EDIT_INPUT_SAN_PHAM # Cần state này

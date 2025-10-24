@@ -10,8 +10,8 @@ from .common import (
     show_order_after_edit,
     handle_sheet_update_error
 )
-from ..utils import connect_to_sheet
-from ..column import SHEETS, ORDER_COLUMNS
+from utils import connect_to_sheet
+from column import SHEETS, ORDER_COLUMNS
 
 logger = logging.getLogger(__name__)
 

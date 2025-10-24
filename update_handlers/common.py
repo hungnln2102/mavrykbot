@@ -4,10 +4,10 @@ from datetime import datetime, timezone, timedelta
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 import gspread
-from ..utils import connect_to_sheet, chuan_hoa_gia, escape_mdv2
-from ..column import SHEETS, ORDER_COLUMNS, TYGIA_IDX
-from ..add_order import tinh_ngay_het_han
-from ..update_order import show_matched_order, end_update
+from utils import connect_to_sheet, chuan_hoa_gia, escape_mdv2
+from column import SHEETS, ORDER_COLUMNS, TYGIA_IDX
+from add_order import tinh_ngay_het_han
+from update_order import show_matched_order, end_update
 
 logger = logging.getLogger(__name__)
 
