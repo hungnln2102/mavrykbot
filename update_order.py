@@ -15,7 +15,13 @@ from column import SHEETS, ORDER_COLUMNS, TYGIA_IDX
 
 logger = logging.getLogger(__name__)
 
-SELECT_MODE, INPUT_VALUE, SELECT_ACTION, EDIT_CHOOSE_FIELD, EDIT_INPUT_VALUE = range(5)
+# Đã mở rộng các trạng thái (states) để xử lý logic chỉnh sửa phức tạp
+(
+    SELECT_MODE, INPUT_VALUE, SELECT_ACTION, EDIT_CHOOSE_FIELD,
+    EDIT_INPUT_SIMPLE, EDIT_INPUT_SAN_PHAM, EDIT_INPUT_NGUON,
+    EDIT_INPUT_NGAY_DK, EDIT_INPUT_SO_NGAY,
+    EDIT_INPUT_TEN_KHACH, EDIT_INPUT_LINK_KHACH
+) = range(11)
 
 def escape_mdv2(text):
     if not text:
@@ -339,6 +345,122 @@ async def delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         await query.edit_message_text("❌ Lỗi khi cập nhật Google Sheet.")
     return await end_update(update, context)
 
+# -----------------------------------------------------------------
+# HÀM MỚI: Helper để lấy thông tin đơn hàng từ context
+# -----------------------------------------------------------------
+def _get_order_from_context(context: ContextTypes.DEFAULT_TYPE):
+    """Helper to retrieve current order info from context."""
+    ma_don = context.user_data.get('edit_ma_don')
+    all_data_cache = context.user_data.get('order_sheet_cache', [])
+    
+    if not ma_don:
+        return None, -1, None # ma_don, row_idx, row_data
+
+    for i, item in enumerate(all_data_cache):
+        if len(item) > ORDER_COLUMNS["ID_DON_HANG"] and item[ORDER_COLUMNS["ID_DON_HANG"]] == ma_don:
+            # Trả về: mã đơn, chỉ số hàng (bắt đầu từ 1), dữ liệu hàng
+            return ma_don, i + 1, item 
+    
+    return ma_don, -1, None # Không tìm thấy
+
+# -----------------------------------------------------------------
+# HÀM MỚI: Helper để cập nhật Giá Nhập
+# -----------------------------------------------------------------
+async def _update_gia_nhap(
+    sheet_row_data: list, 
+    sheet_row_idx: int, 
+    ws: 'gspread.Worksheet' # 'gspread.Worksheet'
+) -> (str, int):
+    """
+    Tự động cập nhật GIA_NHAP dựa trên SAN_PHAM và NGUON hiện tại của đơn hàng.
+    Sử dụng logic tương tự như hàm extend_order.
+    Trả về (giá_đã_format, giá_số)
+    """
+    try:
+        san_pham = sheet_row_data[ORDER_COLUMNS["SAN_PHAM"]].strip()
+        nguon_hang = sheet_row_data[ORDER_COLUMNS["NGUON"]].strip()
+        gia_nhap_cu = sheet_row_data[ORDER_COLUMNS["GIA_NHAP"]].strip()
+    except IndexError:
+        logger.warning(f"Thiếu dữ liệu trong sheet_row_data để cập nhật giá nhập.")
+        return "0", 0
+
+    gia_nhap_moi = None
+    try:
+        sheet_ty_gia = connect_to_sheet().worksheet(SHEETS["EXCHANGE"])
+        ty_gia_data = sheet_ty_gia.get_all_values()
+        
+        headers = ty_gia_data[0] if ty_gia_data else []
+        
+        # Tìm cột tương ứng với nguồn hàng của đơn
+        nguon_col_idx = -1
+        for i, header_name in enumerate(headers):
+            if header_name.strip().lower() == nguon_hang.strip().lower():
+                nguon_col_idx = i
+                break
+
+        # Tìm dòng tương ứng với sản phẩm
+        product_row = None
+        for row in ty_gia_data[1:]:
+            ten_sp_tygia = row[TYGIA_IDX["SAN_PHAM"]] if len(row) > TYGIA_IDX["SAN_PHAM"] else ""
+            if ten_sp_tygia.strip().lower() == san_pham.strip().lower():
+                product_row = row
+                break
+
+        # Lấy giá nhập tại ô giao điểm (dòng sản phẩm, cột nguồn)
+        if product_row and nguon_col_idx != -1 and len(product_row) > nguon_col_idx:
+            gia_nhap_raw = product_row[nguon_col_idx]
+            _, gia_nhap_moi = chuan_hoa_gia(gia_nhap_raw)
+
+    except Exception as e:
+        logger.warning(f"Không thể truy cập '{SHEETS['EXCHANGE']}' để cập nhật giá nhập: {e}")
+
+    final_gia_nhap_num = gia_nhap_moi if gia_nhap_moi is not None else chuan_hoa_gia(gia_nhap_cu)[1]
+    final_gia_nhap_str = "{:,}".format(final_gia_nhap_num or 0)
+
+    # Cập nhật GSheet và cache
+    ws.update_cell(sheet_row_idx, ORDER_COLUMNS["GIA_NHAP"] + 1, final_gia_nhap_str)
+    sheet_row_data[ORDER_COLUMNS["GIA_NHAP"]] = final_gia_nhap_str
+    
+    return final_gia_nhap_str, final_gia_nhap_num
+
+# -----------------------------------------------------------------
+# HÀM MỚI: Helper để cập nhật Ngày Hết Hạn
+# -----------------------------------------------------------------
+async def _update_het_han(
+    sheet_row_data: list, 
+    sheet_row_idx: int, 
+    ws: 'gspread.Worksheet' # 'gspread.Worksheet'
+) -> str:
+    """
+    Tự động cập nhật HET_HAN dựa trên NGAY_DANG_KY và SO_NGAY.
+    Trả về ngày hết hạn mới (str).
+    """
+    try:
+        ngay_dk = sheet_row_data[ORDER_COLUMNS["NGAY_DANG_KY"]].strip()
+        so_ngay = sheet_row_data[ORDER_COLUMNS["SO_NGAY"]].strip()
+        het_han_cu = sheet_row_data[ORDER_COLUMNS["HET_HAN"]].strip()
+    except IndexError:
+        logger.warning(f"Thiếu dữ liệu trong sheet_row_data để cập nhật ngày hết hạn.")
+        return ""
+
+    if not ngay_dk or not so_ngay:
+        return het_han_cu # Trả về giá trị cũ nếu thiếu dữ liệu
+
+    try:
+        ngay_het_han_moi = tinh_ngay_het_han(ngay_dk, so_ngay)
+    except (ValueError, TypeError):
+        logger.warning(f"Không thể tính ngày hết hạn mới từ {ngay_dk} và {so_ngay}")
+        return het_han_cu # Trả về giá trị cũ nếu lỗi
+
+    # Cập nhật GSheet và cache
+    ws.update_cell(sheet_row_idx, ORDER_COLUMNS["HET_HAN"] + 1, ngay_het_han_moi)
+    sheet_row_data[ORDER_COLUMNS["HET_HAN"]] = ngay_het_han_moi
+    
+    return ngay_het_han_moi
+
+# -----------------------------------------------------------------
+# CẬP NHẬT: `start_edit_update` với nhiều nút hơn
+# -----------------------------------------------------------------
 async def start_edit_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
@@ -346,50 +468,100 @@ async def start_edit_update(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     context.user_data['edit_ma_don'] = ma_don
 
     keyboard = [
-        [InlineKeyboardButton("Sản phẩm", callback_data=f"edit_{ORDER_COLUMNS['SAN_PHAM']}"),
-         InlineKeyboardButton("Thông Tin", callback_data=f"edit_{ORDER_COLUMNS['THONG_TIN_DON']}")],
-        [InlineKeyboardButton("Tên Khách", callback_data=f"edit_{ORDER_COLUMNS['TEN_KHACH']}"),
-         InlineKeyboardButton("Link Khách", callback_data=f"edit_{ORDER_COLUMNS['LINK_KHACH']}")],
-        [InlineKeyboardButton("Giá Bán", callback_data=f"edit_{ORDER_COLUMNS['GIA_BAN']}"),
-         InlineKeyboardButton("Ghi Chú", callback_data=f"edit_{ORDER_COLUMNS['NOTE']}")],
+        [
+            InlineKeyboardButton("Sản phẩm", callback_data=f"edit_{ORDER_COLUMNS['SAN_PHAM']}"),
+            InlineKeyboardButton("Thông Tin", callback_data=f"edit_{ORDER_COLUMNS['THONG_TIN_DON']}")
+        ],
+        [
+            InlineKeyboardButton("Tên Khách", callback_data=f"edit_{ORDER_COLUMNS['TEN_KHACH']}"),
+            InlineKeyboardButton("Link Khách", callback_data=f"edit_{ORDER_COLUMNS['LINK_KHACH']}")
+        ],
+        [
+            InlineKeyboardButton("Slot", callback_data=f"edit_{ORDER_COLUMNS['SLOT']}"),
+            InlineKeyboardButton("Nguồn", callback_data=f"edit_{ORDER_COLUMNS['NGUON']}")
+        ],
+        [
+            InlineKeyboardButton("Ngày ĐK", callback_data=f"edit_{ORDER_COLUMNS['NGAY_DANG_KY']}"),
+            InlineKeyboardButton("Số Ngày", callback_data=f"edit_{ORDER_COLUMNS['SO_NGAY']}")
+        ],
+        [
+            InlineKeyboardButton("Giá Nhập", callback_data=f"edit_{ORDER_COLUMNS['GIA_NHAP']}"),
+            InlineKeyboardButton("Giá Bán", callback_data=f"edit_{ORDER_COLUMNS['GIA_BAN']}")
+        ],
+        [
+            InlineKeyboardButton("Ghi Chú", callback_data=f"edit_{ORDER_COLUMNS['NOTE']}"),
+        ],
         [InlineKeyboardButton("Quay lại", callback_data="back_to_order")]
     ]
 
-    await query.edit_message_text("✍️ Vui lòng chọn trường cần chỉnh sửa:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text(
+        "✍️ Vui lòng chọn trường cần chỉnh sửa:", 
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
     return EDIT_CHOOSE_FIELD
 
+# -----------------------------------------------------------------
+# CẬP NHẬT: `choose_field_to_edit` để định tuyến (route)
+# -----------------------------------------------------------------
 async def choose_field_to_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
+    
     col_idx = int(query.data.split("_")[1])
     context.user_data['edit_col_idx'] = col_idx
-    col_name = next((key for key, value in ORDER_COLUMNS.items() if value == col_idx), "Không xác định")
+    
+    # Tìm tên cột để hiển thị prompt
+    col_name = "Không xác định"
+    for key, value in ORDER_COLUMNS.items():
+        if value == col_idx:
+            if key == 'THONG_TIN_DON': col_name = "Thông Tin SP"
+            elif key == 'TEN_KHACH': col_name = "Tên Khách"
+            elif key == 'LINK_KHACH': col_name = "Link Khách"
+            elif key == 'NGAY_DANG_KY': col_name = "Ngày Đăng Ký"
+            elif key == 'SO_NGAY': col_name = "Số Ngày"
+            elif key == 'GIA_NHAP': col_name = "Giá Nhập"
+            elif key == 'GIA_BAN': col_name = "Giá Bán"
+            elif key == 'NOTE': col_name = "Ghi Chú"
+            else: col_name = key.replace('_', ' ').title()
+            break
+            
     keyboard = [[InlineKeyboardButton("❌ Hủy", callback_data="cancel_update")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
+
+    # Logic định tuyến: Quyết định trạng thái (state) tiếp theo
+    next_state = EDIT_INPUT_SIMPLE # Mặc định cho các trường đơn giản
+    
+    if col_idx == ORDER_COLUMNS['SAN_PHAM']:
+        next_state = EDIT_INPUT_SAN_PHAM
+    elif col_idx == ORDER_COLUMNS['NGUON']:
+        next_state = EDIT_INPUT_NGUON
+    elif col_idx == ORDER_COLUMNS['NGAY_DANG_KY']:
+        next_state = EDIT_INPUT_NGAY_DK
+    elif col_idx == ORDER_COLUMNS['SO_NGAY']:
+        next_state = EDIT_INPUT_SO_NGAY
+    elif col_idx == ORDER_COLUMNS['TEN_KHACH']:
+        next_state = EDIT_INPUT_TEN_KHACH
+    
+    # Các trường còn lại (GIA_BAN, GIA_NHAP, NOTE, SLOT, LINK_KHACH, THONG_TIN_DON)
+    # sẽ dùng trạng thái mặc định: EDIT_INPUT_SIMPLE
 
     await query.edit_message_text(
         f"✏️ Vui lòng nhập giá trị mới cho *{col_name}*:",
         parse_mode="Markdown",
         reply_markup=reply_markup
     )
-    return EDIT_INPUT_VALUE
+    return next_state
 
-async def input_new_value_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cập nhật giá trị mới vào sheet và quay lại hiển thị đơn hàng."""
+# -----------------------------------------------------------------
+# CẬP NHẬT: Đổi tên `input_new_value_handler` thành `input_new_simple_value_handler`
+# -----------------------------------------------------------------
+async def input_new_simple_value_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cập nhật giá trị mới (cho các trường đơn giản) vào sheet."""
     new_value_raw = update.message.text.strip()
     await update.message.delete()
 
-    ma_don = context.user_data.get('edit_ma_don')
     col_idx = context.user_data.get('edit_col_idx')
-    all_data_cache = context.user_data.get('order_sheet_cache', [])
-
-    row_idx = -1
-    original_row_data = None
-    for i, item in enumerate(all_data_cache):
-        if len(item) > ORDER_COLUMNS["ID_DON_HANG"] and item[ORDER_COLUMNS["ID_DON_HANG"]] == ma_don:
-            row_idx = i + 1
-            original_row_data = item
-            break
+    ma_don, row_idx, original_row_data = _get_order_from_context(context)
 
     if not original_row_data:
         await context.bot.edit_message_text(
@@ -401,29 +573,271 @@ async def input_new_value_handler(update: Update, context: ContextTypes.DEFAULT_
 
     new_value_to_save = new_value_raw
 
+    # Chuẩn hóa/Validate các trường đơn giản
     if col_idx in [ORDER_COLUMNS['GIA_BAN'], ORDER_COLUMNS['GIA_NHAP']]:
         gia_text, _ = chuan_hoa_gia(new_value_raw)
-        if not gia_text:
+        if not gia_text or gia_text == "0":
             await context.bot.edit_message_text(
                 chat_id=update.effective_chat.id,
                 message_id=context.user_data.get('main_message_id'),
                 text="⚠️ Giá không hợp lệ. Vui lòng nhập lại:",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_update")]])
             )
-            return EDIT_INPUT_VALUE
+            return EDIT_INPUT_SIMPLE # Yêu cầu nhập lại
         new_value_to_save = gia_text
-
-    elif col_idx == ORDER_COLUMNS['SAN_PHAM']:
-        new_value_to_save = normalize_product_duration(new_value_raw)
+    
+    # Ghi chú: Yêu cầu "Giá nhập: tự động thay đổi trong sheet tỷ giá"
+    # rất phức tạp và có thể gây lỗi (ghi ngược).
+    # Hiện tại, việc sửa Giá Nhập ở đây chỉ cập nhật trên sheet ORDER.
+    # Giá Nhập sẽ tự động cập nhật nếu bạn sửa SẢN PHẨM hoặc NGUỒN.
 
     try:
         sheet = connect_to_sheet().worksheet(SHEETS["ORDER"])
         sheet.update_cell(row_idx, col_idx + 1, new_value_to_save)
-        original_row_data[col_idx] = new_value_to_save
+        original_row_data[col_idx] = new_value_to_save # Cập nhật cache
     except Exception as e:
-        logger.error(f"Lỗi khi cập nhật ô: {e}")
+        logger.error(f"Lỗi khi cập nhật ô (simple): {e}")
         return await show_matched_order(update, context, success_notice="❌ Lỗi khi cập nhật Google Sheet.")
+    
     return await show_matched_order(update, context, success_notice="✅ Cập nhật thành công!")
+
+# -----------------------------------------------------------------
+# HÀM MỚI: Xử lý cập nhật SẢN PHẨM (và Giá Nhập)
+# -----------------------------------------------------------------
+async def input_new_san_pham_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    new_value_raw = update.message.text.strip()
+    await update.message.delete()
+    
+    col_idx = context.user_data.get('edit_col_idx') # Đây là ORDER_COLUMNS['SAN_PHAM']
+    ma_don, row_idx, original_row_data = _get_order_from_context(context)
+
+    if not original_row_data:
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=context.user_data.get('main_message_id'),
+            text=escape_mdv2("❌ Lỗi: Không tìm thấy đơn hàng trong cache.")
+        )
+        return await end_update(update, context)
+
+    new_san_pham = normalize_product_duration(new_value_raw)
+    
+    try:
+        sheet = connect_to_sheet().worksheet(SHEETS["ORDER"])
+        
+        # 1. Cập nhật SẢN PHẨM
+        sheet.update_cell(row_idx, col_idx + 1, new_san_pham)
+        original_row_data[col_idx] = new_san_pham # Cập nhật cache
+        
+        # 2. Kích hoạt cập nhật GIÁ NHẬP
+        await _update_gia_nhap(original_row_data, row_idx, sheet)
+        
+    except Exception as e:
+        logger.error(f"Lỗi khi cập nhật SAN_PHAM: {e}")
+        return await show_matched_order(update, context, success_notice="❌ Lỗi khi cập nhật Google Sheet.")
+        
+    return await show_matched_order(update, context, success_notice="✅ Cập nhật SẢN PHẨM & GIÁ NHẬP thành công!")
+
+# -----------------------------------------------------------------
+# HÀM MỚI: Xử lý cập nhật NGUỒN (và Giá Nhập)
+# -----------------------------------------------------------------
+async def input_new_nguon_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    new_nguon = update.message.text.strip()
+    await update.message.delete()
+    
+    col_idx = context.user_data.get('edit_col_idx') # Đây là ORDER_COLUMNS['NGUON']
+    ma_don, row_idx, original_row_data = _get_order_from_context(context)
+
+    if not original_row_data:
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=context.user_data.get('main_message_id'),
+            text=escape_mdv2("❌ Lỗi: Không tìm thấy đơn hàng trong cache.")
+        )
+        return await end_update(update, context)
+
+    try:
+        sheet = connect_to_sheet().worksheet(SHEETS["ORDER"])
+        
+        # 1. Cập nhật NGUỒN
+        sheet.update_cell(row_idx, col_idx + 1, new_nguon)
+        original_row_data[col_idx] = new_nguon # Cập nhật cache
+        
+        # 2. Kích hoạt cập nhật GIÁ NHẬP
+        await _update_gia_nhap(original_row_data, row_idx, sheet)
+        
+    except Exception as e:
+        logger.error(f"Lỗi khi cập nhật NGUON: {e}")
+        return await show_matched_order(update, context, success_notice="❌ Lỗi khi cập nhật Google Sheet.")
+        
+    return await show_matched_order(update, context, success_notice="✅ Cập nhật NGUỒN & GIÁ NHẬP thành công!")
+
+# -----------------------------------------------------------------
+# HÀM MỚI: Xử lý cập nhật NGÀY ĐK (và Hết Hạn)
+# -----------------------------------------------------------------
+async def input_new_ngay_dk_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    new_ngay_dk = update.message.text.strip()
+    await update.message.delete()
+    
+    col_idx = context.user_data.get('edit_col_idx') # ORDER_COLUMNS['NGAY_DANG_KY']
+    ma_don, row_idx, original_row_data = _get_order_from_context(context)
+
+    if not original_row_data:
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=context.user_data.get('main_message_id'),
+            text=escape_mdv2("❌ Lỗi: Không tìm thấy đơn hàng trong cache.")
+        )
+        return await end_update(update, context)
+
+    # Validate định dạng ngày
+    try:
+        datetime.strptime(new_ngay_dk, "%d/%m/%Y")
+    except ValueError:
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=context.user_data.get('main_message_id'),
+            text="⚠️ Định dạng ngày không hợp lệ (cần `dd/mm/yyyy`). Vui lòng nhập lại:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_update")]])
+        )
+        return EDIT_INPUT_NGAY_DK # Yêu cầu nhập lại
+
+    try:
+        sheet = connect_to_sheet().worksheet(SHEETS["ORDER"])
+        
+        # 1. Cập nhật NGÀY ĐĂNG KÝ
+        sheet.update_cell(row_idx, col_idx + 1, new_ngay_dk)
+        original_row_data[col_idx] = new_ngay_dk # Cập nhật cache
+        
+        # 2. Kích hoạt cập nhật HẾT HẠN
+        await _update_het_han(original_row_data, row_idx, sheet)
+        
+    except Exception as e:
+        logger.error(f"Lỗi khi cập nhật NGAY_DANG_KY: {e}")
+        return await show_matched_order(update, context, success_notice="❌ Lỗi khi cập nhật Google Sheet.")
+        
+    return await show_matched_order(update, context, success_notice="✅ Cập nhật NGÀY ĐK & HẾT HẠN thành công!")
+
+# -----------------------------------------------------------------
+# HÀM MỚI: Xử lý cập nhật SỐ NGÀY (và Hết Hạn)
+# -----------------------------------------------------------------
+async def input_new_so_ngay_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    new_so_ngay = update.message.text.strip()
+    await update.message.delete()
+    
+    col_idx = context.user_data.get('edit_col_idx') # ORDER_COLUMNS['SO_NGAY']
+    ma_don, row_idx, original_row_data = _get_order_from_context(context)
+
+    if not original_row_data:
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=context.user_data.get('main_message_id'),
+            text=escape_mdv2("❌ Lỗi: Không tìm thấy đơn hàng trong cache.")
+        )
+        return await end_update(update, context)
+
+    # Validate số
+    if not new_so_ngay.isdigit() or int(new_so_ngay) <= 0:
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=context.user_data.get('main_message_id'),
+            text="⚠️ Số ngày không hợp lệ (cần là một số > 0). Vui lòng nhập lại:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_update")]])
+        )
+        return EDIT_INPUT_SO_NGAY # Yêu cầu nhập lại
+
+    try:
+        sheet = connect_to_sheet().worksheet(SHEETS["ORDER"])
+        
+        # 1. Cập nhật SỐ NGÀY
+        sheet.update_cell(row_idx, col_idx + 1, new_so_ngay)
+        original_row_data[col_idx] = new_so_ngay # Cập nhật cache
+        
+        # 2. Kích hoạt cập nhật HẾT HẠN
+        await _update_het_han(original_row_data, row_idx, sheet)
+        
+    except Exception as e:
+        logger.error(f"Lỗi khi cập nhật SO_NGAY: {e}")
+        return await show_matched_order(update, context, success_notice="❌ Lỗi khi cập nhật Google Sheet.")
+        
+    return await show_matched_order(update, context, success_notice="✅ Cập nhật SỐ NGÀY & HẾT HẠN thành công!")
+
+# -----------------------------------------------------------------
+# HÀM MỚI: Xử lý cập nhật TÊN KHÁCH (Bước 1/2)
+# -----------------------------------------------------------------
+async def input_new_ten_khach_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    new_ten_khach = update.message.text.strip()
+    await update.message.delete()
+    
+    col_idx = context.user_data.get('edit_col_idx') # ORDER_COLUMNS['TEN_KHACH']
+    ma_don, row_idx, original_row_data = _get_order_from_context(context)
+
+    if not original_row_data:
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=context.user_data.get('main_message_id'),
+            text=escape_mdv2("❌ Lỗi: Không tìm thấy đơn hàng trong cache.")
+        )
+        return await end_update(update, context)
+        
+    try:
+        # 1. Cập nhật TÊN KHÁCH ngay lập tức
+        sheet = connect_to_sheet().worksheet(SHEETS["ORDER"])
+        sheet.update_cell(row_idx, col_idx + 1, new_ten_khach)
+        original_row_data[col_idx] = new_ten_khach # Cập nhật cache
+    except Exception as e:
+        logger.error(f"Lỗi khi cập nhật TEN_KHACH: {e}")
+        return await show_matched_order(update, context, success_notice="❌ Lỗi khi cập nhật Google Sheet.")
+
+    # 2. Hỏi LINK KHÁCH
+    keyboard = [
+        [InlineKeyboardButton("Bỏ qua", callback_data="skip_link_khach")],
+        [InlineKeyboardButton("❌ Hủy", callback_data="cancel_update")]
+    ]
+    await context.bot.edit_message_text(
+        chat_id=update.effective_chat.id,
+        message_id=context.user_data.get('main_message_id'),
+        text=f"✅ Đã cập nhật Tên Khách.\n\n🔗 Vui lòng nhập *Link Khách* (hoặc Bỏ qua):",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return EDIT_INPUT_LINK_KHACH # Chuyển sang trạng thái chờ nhập Link
+
+# -----------------------------------------------------------------
+# HÀM MỚI: Xử lý cập nhật LINK KHÁCH (Bước 2/2)
+# -----------------------------------------------------------------
+async def input_new_link_khach_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    new_link_khach = update.message.text.strip()
+    await update.message.delete()
+    
+    col_idx = ORDER_COLUMNS['LINK_KHACH'] # Cố định cột Link Khách
+    ma_don, row_idx, original_row_data = _get_order_from_context(context)
+    
+    if not original_row_data:
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=context.user_data.get('main_message_id'),
+            text=escape_mdv2("❌ Lỗi: Không tìm thấy đơn hàng trong cache.")
+        )
+        return await end_update(update, context)
+        
+    try:
+        sheet = connect_to_sheet().worksheet(SHEETS["ORDER"])
+        sheet.update_cell(row_idx, col_idx + 1, new_link_khach)
+        original_row_data[col_idx] = new_link_khach # Cập nhật cache
+    except Exception as e:
+        logger.error(f"Lỗi khi cập nhật LINK_KHACH: {e}")
+        return await show_matched_order(update, context, success_notice="❌ Lỗi khi cập nhật Google Sheet.")
+        
+    return await show_matched_order(update, context, success_notice="✅ Cập nhật Tên Khách & Link Khách thành công!")
+
+# -----------------------------------------------------------------
+# HÀM MỚI: Xử lý Bỏ qua LINK KHÁCH (Bước 2/2)
+# -----------------------------------------------------------------
+async def skip_link_khach_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer("Đã bỏ qua Link Khách")
+    # Tên Khách đã được cập nhật ở bước trước, chỉ cần quay lại
+    return await show_matched_order(update, context, success_notice="✅ Cập nhật Tên Khách thành công (bỏ qua link).")
 
 async def back_to_order_display(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return await show_matched_order(update, context)
@@ -451,6 +865,9 @@ async def cancel_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await query.edit_message_text("❌ Đã hủy thao tác.")
     return await end_update(update, context)
 
+# -----------------------------------------------------------------
+# CẬP NHẬT: `get_update_order_conversation_handler` với các states mới
+# -----------------------------------------------------------------
 def get_update_order_conversation_handler():
     return ConversationHandler(
         entry_points=[
@@ -472,7 +889,18 @@ def get_update_order_conversation_handler():
                 CallbackQueryHandler(choose_field_to_edit, pattern="^edit_.*"),
                 CallbackQueryHandler(back_to_order_display, pattern="^back_to_order$"),
             ],
-            EDIT_INPUT_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_new_value_handler)]
+            # Trạng thái cho các trường đơn giản
+            EDIT_INPUT_SIMPLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_new_simple_value_handler)],
+            # Các trạng thái cho trường phức tạp
+            EDIT_INPUT_SAN_PHAM: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_new_san_pham_handler)],
+            EDIT_INPUT_NGUON: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_new_nguon_handler)],
+            EDIT_INPUT_NGAY_DK: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_new_ngay_dk_handler)],
+            EDIT_INPUT_SO_NGAY: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_new_so_ngay_handler)],
+            EDIT_INPUT_TEN_KHACH: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_new_ten_khach_handler)],
+            EDIT_INPUT_LINK_KHACH: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, input_new_link_khach_handler),
+                CallbackQueryHandler(skip_link_khach_handler, pattern="^skip_link_khach$")
+            ],
         },
         fallbacks=[
             CallbackQueryHandler(cancel_update, pattern="^cancel_update$"),
