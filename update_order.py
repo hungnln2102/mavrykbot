@@ -15,13 +15,14 @@ from column import SHEETS, ORDER_COLUMNS, TYGIA_IDX
 
 logger = logging.getLogger(__name__)
 
-# Đã mở rộng các trạng thái (states) để xử lý logic chỉnh sửa phức tạp
+# --- THAY ĐỔI 1: Quay lại range(11) ---
+# Loại bỏ trạng thái EDIT_SAN_PHAM_SO_NGAY
 (
     SELECT_MODE, INPUT_VALUE, SELECT_ACTION, EDIT_CHOOSE_FIELD,
     EDIT_INPUT_SIMPLE, EDIT_INPUT_SAN_PHAM, EDIT_INPUT_NGUON,
     EDIT_INPUT_NGAY_DK, EDIT_INPUT_SO_NGAY,
     EDIT_INPUT_TEN_KHACH, EDIT_INPUT_LINK_KHACH
-) = range(11)
+) = range(11) # Quay lại 11
 
 def escape_mdv2(text):
     if not text:
@@ -586,11 +587,6 @@ async def input_new_simple_value_handler(update: Update, context: ContextTypes.D
             return EDIT_INPUT_SIMPLE # Yêu cầu nhập lại
         new_value_to_save = gia_text
     
-    # Ghi chú: Yêu cầu "Giá nhập: tự động thay đổi trong sheet tỷ giá"
-    # rất phức tạp và có thể gây lỗi (ghi ngược).
-    # Hiện tại, việc sửa Giá Nhập ở đây chỉ cập nhật trên sheet ORDER.
-    # Giá Nhập sẽ tự động cập nhật nếu bạn sửa SẢN PHẨM hoặc NGUỒN.
-
     try:
         sheet = connect_to_sheet().worksheet(SHEETS["ORDER"])
         sheet.update_cell(row_idx, col_idx + 1, new_value_to_save)
@@ -602,13 +598,12 @@ async def input_new_simple_value_handler(update: Update, context: ContextTypes.D
     return await show_matched_order(update, context, success_notice="✅ Cập nhật thành công!")
 
 # -----------------------------------------------------------------
-# HÀM MỚI: Xử lý cập nhật SẢN PHẨM (và Giá Nhập)
+# --- THAY ĐỔI 2: Cập nhật hàm `input_new_san_pham_handler` (Logic 1 bước) ---
 # -----------------------------------------------------------------
 async def input_new_san_pham_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     new_value_raw = update.message.text.strip()
     await update.message.delete()
     
-    col_idx = context.user_data.get('edit_col_idx') # Đây là ORDER_COLUMNS['SAN_PHAM']
     ma_don, row_idx, original_row_data = _get_order_from_context(context)
 
     if not original_row_data:
@@ -619,23 +614,57 @@ async def input_new_san_pham_handler(update: Update, context: ContextTypes.DEFAU
         )
         return await end_update(update, context)
 
+    # 1. Chuẩn hóa tên sản phẩm
     new_san_pham = normalize_product_duration(new_value_raw)
+    
+    # 2. Phân tích tên SP để lấy SỐ NGÀY
+    match_thoi_han = re.search(r"--\s*(\d+)\s*m", new_san_pham, flags=re.I)
+    
+    if not match_thoi_han:
+        # Nếu không tìm thấy thời hạn, báo lỗi và yêu cầu nhập lại
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=context.user_data.get('main_message_id'),
+            text=f"⚠️ Tên sản phẩm *{escape_mdv2(new_san_pham)}* không hợp lệ.\n"
+                 f"Cần có thời hạn (ví dụ: `--12m`). Vui lòng nhập lại:",
+            parse_mode="MarkdownV2",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Hủy", callback_data="cancel_update")]])
+        )
+        return EDIT_INPUT_SAN_PHAM # Yêu cầu nhập lại
+
+    # 3. Tính toán số ngày
+    so_thang = int(match_thoi_han.group(1))
+    new_so_ngay_str = "365" if so_thang == 12 else str(so_thang * 30)
     
     try:
         sheet = connect_to_sheet().worksheet(SHEETS["ORDER"])
         
-        # 1. Cập nhật SẢN PHẨM
-        sheet.update_cell(row_idx, col_idx + 1, new_san_pham)
-        original_row_data[col_idx] = new_san_pham # Cập nhật cache
+        # 4. Cập nhật SẢN PHẨM
+        col_san_pham = ORDER_COLUMNS['SAN_PHAM']
+        sheet.update_cell(row_idx, col_san_pham + 1, new_san_pham)
+        original_row_data[col_san_pham] = new_san_pham
         
-        # 2. Kích hoạt cập nhật GIÁ NHẬP
+        # 5. Cập nhật SỐ NGÀY
+        col_so_ngay = ORDER_COLUMNS['SO_NGAY']
+        sheet.update_cell(row_idx, col_so_ngay + 1, new_so_ngay_str)
+        original_row_data[col_so_ngay] = new_so_ngay_str
+        
+        # 6. Kích hoạt cập nhật GIÁ NHẬP (dùng SP mới, Nguồn cũ)
         await _update_gia_nhap(original_row_data, row_idx, sheet)
         
+        # 7. Kích hoạt cập nhật HẾT HẠN (dùng Ngày ĐK cũ, Số Ngày mới)
+        await _update_het_han(original_row_data, row_idx, sheet)
+        
     except Exception as e:
-        logger.error(f"Lỗi khi cập nhật SAN_PHAM: {e}")
+        logger.error(f"Lỗi khi cập nhật SAN_PHAM (auto): {e}")
         return await show_matched_order(update, context, success_notice="❌ Lỗi khi cập nhật Google Sheet.")
         
-    return await show_matched_order(update, context, success_notice="✅ Cập nhật SẢN PHẨM & GIÁ NHẬP thành công!")
+    return await show_matched_order(update, context, success_notice="✅ Cập nhật SẢN PHẨM, SỐ NGÀY, GIÁ NHẬP & HẾT HẠN thành công!")
+
+# -----------------------------------------------------------------
+# --- THAY ĐỔI 3: Xóa hàm `input_new_san_pham_so_ngay_handler` ---
+# (Hàm này không còn cần thiết nữa)
+# -----------------------------------------------------------------
 
 # -----------------------------------------------------------------
 # HÀM MỚI: Xử lý cập nhật NGUỒN (và Giá Nhập)
@@ -759,7 +788,7 @@ async def input_new_so_ngay_handler(update: Update, context: ContextTypes.DEFAUL
         logger.error(f"Lỗi khi cập nhật SO_NGAY: {e}")
         return await show_matched_order(update, context, success_notice="❌ Lỗi khi cập nhật Google Sheet.")
         
-    return await show_matched_order(update, context, success_notice="✅ Cập nhật SỐ NGÀY & HẾT HẠN thành công!")
+    return await show_matched_order(update, context, success_notice="✅ Cập nhật SỐ NGÀAY & HẾT HẠN thành công!")
 
 # -----------------------------------------------------------------
 # HÀM MỚI: Xử lý cập nhật TÊN KHÁCH (Bước 1/2)
@@ -866,7 +895,7 @@ async def cancel_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     return await end_update(update, context)
 
 # -----------------------------------------------------------------
-# CẬP NHẬT: `get_update_order_conversation_handler` với các states mới
+# --- THAY ĐỔI 4: Cập nhật `get_update_order_conversation_handler` ---
 # -----------------------------------------------------------------
 def get_update_order_conversation_handler():
     return ConversationHandler(
@@ -892,7 +921,7 @@ def get_update_order_conversation_handler():
             # Trạng thái cho các trường đơn giản
             EDIT_INPUT_SIMPLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_new_simple_value_handler)],
             # Các trạng thái cho trường phức tạp
-            EDIT_INPUT_SAN_PHAM: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_new_san_pham_handler)],
+            EDIT_INPUT_SAN_PHAM: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_new_san_pham_handler)], # Logic 1 bước
             EDIT_INPUT_NGUON: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_new_nguon_handler)],
             EDIT_INPUT_NGAY_DK: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_new_ngay_dk_handler)],
             EDIT_INPUT_SO_NGAY: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_new_so_ngay_handler)],
@@ -901,6 +930,7 @@ def get_update_order_conversation_handler():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, input_new_link_khach_handler),
                 CallbackQueryHandler(skip_link_khach_handler, pattern="^skip_link_khach$")
             ],
+            # Trạng thái EDIT_SAN_PHAM_SO_NGAY đã bị xóa
         },
         fallbacks=[
             CallbackQueryHandler(cancel_update, pattern="^cancel_update$"),
