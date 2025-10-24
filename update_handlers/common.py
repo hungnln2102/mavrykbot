@@ -10,9 +10,6 @@ import gspread
 from utils import connect_to_sheet, chuan_hoa_gia, escape_mdv2
 from column import SHEETS, ORDER_COLUMNS, TYGIA_IDX
 from add_order import tinh_ngay_het_han
-# --- THAY ĐỔI: XÓA IMPORT VÒNG TRÒN KHỎI ĐÂY ---
-# from update_order import show_matched_order, end_update
-# ---------------------------------------------
 
 logger = logging.getLogger(__name__)
 
