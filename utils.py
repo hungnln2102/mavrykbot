@@ -155,4 +155,40 @@ def get_current_cycle_header_string():
     end_str = format_date_dmy(cycle_end_date.date())
     
     return f"{start_str} - {end_str}"
+
+def chuan_hoa_gia(text):
+    """
+    Chuẩn hóa giá trị nhập vào thành chuỗi định dạng (100,000) và số nguyên (100000).
+    Xử lý các trường hợp: '100k', '100', '100.000', '100000'.
+    Giả định số nhỏ (< 5000) không có dấu '.' là viết tắt nghìn đồng.
+    """
+    try:
+        s = str(text).lower().strip()
+        is_thousand_k = 'k' in s
+        # Kiểm tra xem có dấu phân cách hàng nghìn (của Việt Nam) không
+        has_separator = '.' in s
+
+        digits = ''.join(filter(str.isdigit, s))
+        if not digits:
+            return "0", 0 # Trả về chuỗi "0" và số 0
+
+        number = int(digits)
+
+        # 1. Nếu có 'k' (ví dụ: 100k -> 100 * 1000)
+        if is_thousand_k:
+            number *= 1000
+        # 2. Nếu không có 'k' VÀ không có dấu phân cách
+        #    VÀ số đó nhỏ (ví dụ: < 5000)
+        #    thì giả định đây là viết tắt (ví dụ: 100 -> 100.000)
+        elif not is_thousand_k and not has_separator and number < 5000:
+            # Ngưỡng 5000 có thể thay đổi nếu cần
+            number *= 1000
+
+        # 3. Các trường hợp khác (100.000, 100000, 5000, 1.000) giữ nguyên
+
+        # Trả về chuỗi đã format và số nguyên
+        return "{:,}".format(number), number
+    except (ValueError, TypeError):
+        # Nếu có lỗi (ví dụ: text không hợp lệ), trả về giá trị mặc định
+        return "0", 0
 # ---------------------------------------------
