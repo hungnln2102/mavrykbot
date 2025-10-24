@@ -4,19 +4,29 @@ from datetime import datetime, timezone, timedelta
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 import gspread
+
+# --- IMPORT FROM MAIN PROJECT FILES ---
+# Bỏ dấu .. đi
 from utils import connect_to_sheet, chuan_hoa_gia, escape_mdv2
 from column import SHEETS, ORDER_COLUMNS, TYGIA_IDX
 from add_order import tinh_ngay_het_han
-from update_order import show_matched_order, end_update
+# --- THAY ĐỔI: XÓA IMPORT VÒNG TRÒN KHỎI ĐÂY ---
+# from update_order import show_matched_order, end_update
+# ---------------------------------------------
 
 logger = logging.getLogger(__name__)
 
+# --- HELPER FUNCTIONS ---
+
 def get_order_from_context(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Lấy thông tin đơn hàng hiện tại đang sửa từ context's matched_orders.
+    """
     ma_don = context.user_data.get('edit_ma_don')
     matched_orders = context.user_data.get('matched_orders', [])
 
     if not ma_don:
-        return None, -1, None
+        return None, -1, None # ma_don, row_idx, row_data
 
     for order_info in matched_orders:
         try:
@@ -25,13 +35,14 @@ def get_order_from_context(context: ContextTypes.DEFAULT_TYPE):
         except (IndexError, KeyError):
             continue
 
-    return ma_don, -1, None
+    return ma_don, -1, None # Không tìm thấy
 
 async def update_gia_nhap(
     sheet_row_data: list,
     sheet_row_idx: int,
     ws: gspread.Worksheet
 ) -> tuple[str, int]:
+    """Tự động cập nhật GIA_NHAP dựa trên SAN_PHAM và NGUON."""
     try:
         san_pham = str(sheet_row_data[ORDER_COLUMNS["SAN_PHAM"]]).strip()
         nguon_hang = str(sheet_row_data[ORDER_COLUMNS["NGUON"]]).strip()
@@ -82,13 +93,10 @@ async def update_gia_nhap(
     final_gia_nhap_str = "{:,}".format(final_gia_nhap_num or 0)
 
     try:
-        # Ghi SỐ (number) vào Sheet
         ws.update_cell(sheet_row_idx, ORDER_COLUMNS["GIA_NHAP"] + 1, final_gia_nhap_num)
-        # Lưu CHUỖI (string) vào cache để hiển thị
         sheet_row_data[ORDER_COLUMNS["GIA_NHAP"]] = final_gia_nhap_str
     except Exception as update_err:
          logger.error(f"Lỗi khi cập nhật giá nhập vào sheet tại hàng {sheet_row_idx}: {update_err}")
-         # Nếu cập nhật sheet lỗi, trả về giá trị cũ để cache không bị sai
          return gia_nhap_cu, chuan_hoa_gia(gia_nhap_cu)[1]
 
 
@@ -97,8 +105,8 @@ async def update_gia_nhap(
 async def update_het_han(
     sheet_row_data: list,
     sheet_row_idx: int,
-    ws: gspread.Worksheet # Sử dụng type hint rõ ràng
-) -> str: # Type hint cho giá trị trả về
+    ws: gspread.Worksheet
+) -> str:
     """
     Tự động cập nhật HET_HAN và CON_LAI dựa trên NGAY_DANG_KY và SO_NGAY.
     Cập nhật cả sheet và cache.
@@ -108,28 +116,28 @@ async def update_het_han(
         ngay_dk_str = str(sheet_row_data[ORDER_COLUMNS["NGAY_DANG_KY"]]).strip()
         so_ngay_str = str(sheet_row_data[ORDER_COLUMNS["SO_NGAY"]]).strip()
         try:
-            from ..utils import VN_TZ
+            from utils import VN_TZ # Import cục bộ nếu utils.py không phải lúc nào cũng có VN_TZ
         except ImportError:
             VN_TZ = timezone(timedelta(hours=7))
 
     except IndexError:
         logger.warning(f"Thiếu dữ liệu trong sheet_row_data (hàng {sheet_row_idx}) để cập nhật ngày hết hạn.")
-        return "" # Trả về chuỗi rỗng nếu lỗi
+        return ""
 
     het_han_cu_str = ""
     try:
         het_han_cu_str = str(sheet_row_data[ORDER_COLUMNS["HET_HAN"]]).strip()
     except (IndexError, KeyError):
-        pass # Không sao nếu chưa có
+        pass
 
     if not ngay_dk_str or not so_ngay_str or not so_ngay_str.isdigit():
         logger.warning(f"Ngày ĐK ({ngay_dk_str}) hoặc Số Ngày ({so_ngay_str}) không hợp lệ tại hàng {sheet_row_idx}.")
-        return het_han_cu_str # Trả về giá trị cũ
+        return het_han_cu_str
 
     try:
         ngay_dk_dt = datetime.strptime(ngay_dk_str, "%d/%m/%Y")
         so_ngay_int = int(so_ngay_str)
-        ngay_het_han_dt = ngay_dk_dt + timedelta(days=so_ngay_int) # Hoặc days=so_ngay_int - 1 tùy logic
+        ngay_het_han_dt = ngay_dk_dt + timedelta(days=so_ngay_int)
         ngay_het_han_moi_str = ngay_het_han_dt.strftime("%d/%m/%Y")
 
         today_vn = datetime.now(VN_TZ).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
@@ -138,14 +146,14 @@ async def update_het_han(
 
     except (ValueError, TypeError) as e:
         logger.warning(f"Không thể tính ngày hết hạn/còn lại từ {ngay_dk_str} và {so_ngay_str} (hàng {sheet_row_idx}): {e}")
-        return het_han_cu_str # Trả về giá trị cũ
+        return het_han_cu_str
 
     try:
         ws.update_cell(sheet_row_idx, ORDER_COLUMNS["HET_HAN"] + 1, ngay_het_han_moi_str)
-        sheet_row_data[ORDER_COLUMNS["HET_HAN"]] = ngay_het_han_moi_str # Cập nhật cache Hết Hạn
+        sheet_row_data[ORDER_COLUMNS["HET_HAN"]] = ngay_het_han_moi_str
 
         try:
-            sheet_row_data[ORDER_COLUMNS["CON_LAI"]] = str(con_lai_moi_int) # Lưu chuỗi vào cache
+            sheet_row_data[ORDER_COLUMNS["CON_LAI"]] = str(con_lai_moi_int)
         except (IndexError, KeyError):
             logger.debug(f"Không tìm thấy cột CON_LAI để cập nhật cache tại hàng {sheet_row_idx}.")
             pass
@@ -156,11 +164,23 @@ async def update_het_han(
 
     return ngay_het_han_moi_str
 
+# --- THAY ĐỔI: IMPORT CỤC BỘ ---
 async def show_order_after_edit(update: Update, context: ContextTypes.DEFAULT_TYPE, success_notice: str = "") -> int:
+    """
+    Helper để hiển thị chi tiết đơn hàng sau khi chỉnh sửa.
+    Gọi lại hàm show_matched_order từ update_order.py.
+    """
+    # Import cục bộ bên trong hàm
+    from update_order import show_matched_order
     return await show_matched_order(update, context, success_notice=success_notice)
 
+# --- THAY ĐỔI: IMPORT CỤC BỘ ---
 async def handle_sheet_update_error(update: Update, context: ContextTypes.DEFAULT_TYPE, error: Exception, action_description: str = "cập nhật ô") -> int:
     """Helper xử lý lỗi chung khi cập nhật Google Sheet."""
-    logger.error(f"Lỗi khi {action_description}: {error}", exc_info=True) # Thêm exc_info=True để ghi traceback
+    logger.error(f"Lỗi khi {action_description}: {error}", exc_info=True)
     await show_order_after_edit(update, context, success_notice="❌ Lỗi khi cập nhật Google Sheet.")
+    # Import cục bộ bên trong hàm
+    # from update_order import end_update
+    # return await end_update(update, context) # Có thể không cần gọi end_update ở đây
     return ConversationHandler.END # Kết thúc conversation khi có lỗi sheet
+# -----------------------------
