@@ -10,7 +10,7 @@ from telegram.ext import (
     MessageHandler, CallbackQueryHandler, filters
 )
 # --- IMPORT TỪ UTILS VÀ CÁC FILE KHÁC ---
-from utils import connect_to_sheet, escape_mdv2, chuan_hoa_gia
+from utils import connect_to_sheet, escape_mdv2, chuan_hoa_gia, normalize_product_duration
 from menu import show_main_selector
 from add_order import tinh_ngay_het_han
 from column import SHEETS, ORDER_COLUMNS, TYGIA_IDX
@@ -43,15 +43,6 @@ logger = logging.getLogger(__name__)
 
 
 # --- CÁC HÀM HELPER (ĐƯỢC GIỮ LẠI VÌ DÙNG TRỰC TIẾP Ở FILE NÀY) ---
-
-def normalize_product_duration(text: str) -> str:
-    """Chuẩn hóa định dạng thời hạn sản phẩm (ví dụ: --12m)."""
-    # Hàm này được giữ lại vì 'extend_order' cần dùng
-    if not isinstance(text, str):
-        text = str(text)
-    s = re.sub(r"[\u2010-\u2015]", "-", text)
-    s = re.sub(r"-+\s*(\d+)\s*m\b", r"--\1m", s, flags=re.I)
-    return s
 
 def format_order_message(row_data):
     """Tạo tin nhắn chi tiết đơn hàng từ dữ liệu hàng (row_data)."""

@@ -13,7 +13,7 @@ from .common import (
     handle_sheet_update_error
 )
 from utils import connect_to_sheet, escape_mdv2
-from update_order import normalize_product_duration
+from utils import normalize_product_duration
 from column import SHEETS, ORDER_COLUMNS
 from update_states import EDIT_INPUT_SAN_PHAM # Cần state này
 

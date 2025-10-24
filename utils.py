@@ -156,6 +156,15 @@ def get_current_cycle_header_string():
     
     return f"{start_str} - {end_str}"
 
+def normalize_product_duration(text: str) -> str:
+    """Chuẩn hóa định dạng thời hạn sản phẩm (ví dụ: --12m)."""
+    # Hàm này được giữ lại vì 'extend_order' cần dùng
+    if not isinstance(text, str):
+        text = str(text)
+    s = re.sub(r"[\u2010-\u2015]", "-", text)
+    s = re.sub(r"-+\s*(\d+)\s*m\b", r"--\1m", s, flags=re.I)
+    return s
+
 def chuan_hoa_gia(text):
     """
     Chuẩn hóa giá trị nhập vào thành chuỗi định dạng (100,000) và số nguyên (100000).
@@ -191,4 +200,6 @@ def chuan_hoa_gia(text):
     except (ValueError, TypeError):
         # Nếu có lỗi (ví dụ: text không hợp lệ), trả về giá trị mặc định
         return "0", 0
+    
+    
 # ---------------------------------------------
