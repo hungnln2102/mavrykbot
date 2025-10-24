@@ -4,7 +4,7 @@ from telegram.ext import ContextTypes
 from .common import get_order_from_context, show_order_after_edit, handle_sheet_update_error
 from utils import connect_to_sheet, chuan_hoa_gia, escape_mdv2
 from column import SHEETS, ORDER_COLUMNS
-from ..update_states import EDIT_INPUT_SIMPLE
+from update_states import EDIT_INPUT_SIMPLE
 logger = logging.getLogger(__name__)
 
 # --- HANDLER FUNCTION (MOVED FROM update_order.py) ---
