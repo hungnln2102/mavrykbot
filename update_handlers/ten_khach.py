@@ -8,7 +8,7 @@ from .common import (
 )
 from utils import connect_to_sheet
 from column import SHEETS, ORDER_COLUMNS
-from update_order import EDIT_INPUT_LINK_KHACH # Cần state này
+from update_states import EDIT_INPUT_LINK_KHACH # Cần state này
 
 logger = logging.getLogger(__name__)
 

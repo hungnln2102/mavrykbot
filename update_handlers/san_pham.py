@@ -19,7 +19,7 @@ from update_order import normalize_product_duration
 from column import SHEETS, ORDER_COLUMNS
 
 # --- IMPORT STATES (để return về state cũ nếu validate lỗi) ---
-from ..update_order import EDIT_INPUT_SAN_PHAM # Cần state này
+from update_states import EDIT_INPUT_SAN_PHAM # Cần state này
 
 logger = logging.getLogger(__name__)
 
