@@ -1,9 +1,14 @@
-# app/utils.py
 import os, json, logging
 import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime, timedelta, timezone # 👈 Đã thêm 'timezone'
+from datetime import datetime, timedelta, timezone
 import re
+import time 
+import http.client
+from gspread.exceptions import APIError
+from google.auth.exceptions import TransportError
+from urllib3.exceptions import ProtocolError
+from requests.exceptions import ConnectionError
 
 logger = logging.getLogger(__name__)
 
@@ -12,13 +17,9 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
-# --- PHẦN MỚI: Thêm hằng số Múi giờ ---
-# Múi giờ Việt Nam (UTC+7)
 VN_TZ = timezone(timedelta(hours=7))
-# ------------------------------------
 
 def _creds_path():
-    # cố định tới app/creds.json, kể cả chạy dưới NSSM
     here = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(here, "creds.json")
 
@@ -31,36 +32,65 @@ def _client():
     return gspread.authorize(creds)
 
 def _spreadsheet_id():
-    # ưu tiên env; có thể fallback sang config nếu bạn có
     sid = os.getenv("SPREADSHEET_ID")
     if sid:
         return sid
     try:
-        from config import SHEET_ID as sid_from_cfg  # nếu bạn có
+        from config import SHEET_ID as sid_from_cfg
         return sid_from_cfg
     except Exception:
         pass
     try:
-        # fallback cuối: mở theo tên (kém ổn định)
         from config import SHEET_NAME as name
         return None if not name else ("NAME:" + name)
     except Exception:
         return None
 
-def connect_to_sheet():
-    client = _client()
-    sid = _spreadsheet_id()
-    if not sid:
-        raise RuntimeError(
-        )
-    try:
-        if sid.startswith("NAME:"):
-            name = sid.split("NAME:", 1)[1]
-            return client.open(name)
-        return client.open_by_key(sid)
-    except Exception as e:
-        logger.error("Lỗi kết nối Google Sheet: %s", e, exc_info=True)
-        raise
+def connect_to_sheet(retries=3, delay=5):
+    last_exception = None
+    
+    RETRYABLE_EXCEPTIONS = (
+        TransportError,
+        APIError,
+        ConnectionError,
+        ProtocolError,
+        http.client.RemoteDisconnected
+    )
+    
+    for i in range(retries):
+        try:
+            logger.debug(f"Đang kết nối Google Sheet (lần {i+1}/{retries})...")
+            client = _client()
+            sid = _spreadsheet_id()
+            if not sid:
+                raise RuntimeError("Lỗi cấu hình: SPREADSHEET_ID chưa được thiết lập.")
+            spreadsheet = None
+            if sid.startswith("NAME:"):
+                name = sid.split("NAME:", 1)[1]
+                spreadsheet = client.open(name)
+            else:
+                spreadsheet = client.open_by_key(sid)
+            logger.info(f"Kết nối Google Sheet thành công (ID: {sid}).")
+            return spreadsheet
+        except RETRYABLE_EXCEPTIONS as e:
+            last_exception = e
+            logger.warning(f"Lỗi kết nối/API Google Sheet (lần {i+1}/{retries}): {e}")
+            if i < retries - 1:
+                logger.info(f"Đang thử lại sau {delay} giây...")
+                time.sleep(delay)
+            else:
+                logger.error(f"Kết nối Google Sheet thất bại sau {retries} lần thử.")
+        except RuntimeError as e:
+            logger.error(str(e))
+            raise
+        except Exception as e:
+            logger.error(f"Lỗi không xác định khi kết nối Sheet: {e}", exc_info=True)
+            last_exception = e
+            break
+    
+    if last_exception:
+        logger.error(f"Không thể kết nối Google Sheet sau {retries} lần. Lỗi cuối: {last_exception}")
+        raise last_exception
 
 def append_to_sheet(sheet_name: str, data: list):
     sh = connect_to_sheet()
@@ -83,7 +113,7 @@ def escape_mdv2(text: str) -> str:
     return re.sub(r'([_\*\[\]\(\)~`>\#\+\-\=\|\{\}\.!])', r'\\\1', text)
 
 def gen_mavn_id():
-    from column import SHEETS  # tránh import sớm gây circular
+    from column import SHEETS
     ss = connect_to_sheet()
     order_ws = ss.worksheet(SHEETS["ORDER"])
     import_ws = ss.worksheet(SHEETS["IMPORT"])
@@ -98,7 +128,6 @@ def gen_mavn_id():
         n += 1
 
 def compute_dates(so_ngay: int, start_date: datetime | None = None):
-    # Dùng .now(VN_TZ) để chuẩn múi giờ, thay vì .now()
     tz_today = datetime.now(VN_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
     start = start_date or tz_today
     end = start + timedelta(days=int(so_ngay))
@@ -113,52 +142,34 @@ def to_int(v, default=0):
     digits = re.sub(r"[^\d]", "", s)
     return int(digits) if digits else default
 
-# --- PHẦN MỚI: Các hàm logic Ngày Chu Kỳ ---
-
 def format_date_dmy(date_obj):
     """Định dạng ngày thành 'dd/mm/yyyy'."""
     return date_obj.strftime("%d/%m/%Y")
 
 def get_current_cycle_header_string():
-    """
-    Lấy chuỗi header (ví dụ: "27/10/2025 - 02/11/2025") cho chu kỳ hiện tại.
-    Chu kỳ tính theo mốc 19:00 Chủ Nhật, múi giờ Việt Nam.
-    """
-    now = datetime.now(VN_TZ) # Lấy giờ VN hiện tại
-
-    # 1. Tìm mốc 19:00 của ngày Chủ Nhật gần nhất
+    now = datetime.now(VN_TZ)
     days_until_sunday = (6 - now.weekday() + 7) % 7
     sunday_boundary_date = now.date() + timedelta(days=days_until_sunday)
-    
-    # Đặt mốc thời gian là 19:00
     sunday_boundary = datetime(
         sunday_boundary_date.year, 
         sunday_boundary_date.month, 
         sunday_boundary_date.day, 
         19, 0, 0,
-        tzinfo=VN_TZ # Quan trọng: đặt múi giờ cho mốc
+        tzinfo=VN_TZ
     )
 
-    # 2. Kiểm tra xem 'now' đã qua mốc 19:00 Chủ Nhật đó chưa
     if now > sunday_boundary:
-        # Đã qua 19:00 CN, chu kỳ hiện tại sẽ kết thúc vào Chủ Nhật tuần TỚI
         cycle_end_date = sunday_boundary + timedelta(days=7)
     else:
-        # Chưa qua 19:00 CN, chu kỳ hiện tại kết thúc vào Chủ Nhật này
         cycle_end_date = sunday_boundary
-
-    # 3. Ngày bắt đầu là Thứ Hai, 6 ngày trước ngày kết thúc
     cycle_start_date = cycle_end_date - timedelta(days=6)
 
-    # Chúng ta chỉ cần ngày, không cần giờ
     start_str = format_date_dmy(cycle_start_date.date())
     end_str = format_date_dmy(cycle_end_date.date())
     
     return f"{start_str} - {end_str}"
 
 def normalize_product_duration(text: str) -> str:
-    """Chuẩn hóa định dạng thời hạn sản phẩm (ví dụ: --12m)."""
-    # Hàm này được giữ lại vì 'extend_order' cần dùng
     if not isinstance(text, str):
         text = str(text)
     s = re.sub(r"[\u2010-\u2015]", "-", text)
@@ -166,40 +177,18 @@ def normalize_product_duration(text: str) -> str:
     return s
 
 def chuan_hoa_gia(text):
-    """
-    Chuẩn hóa giá trị nhập vào thành chuỗi định dạng (100,000) và số nguyên (100000).
-    Xử lý các trường hợp: '100k', '100', '100.000', '100000'.
-    Giả định số nhỏ (< 5000) không có dấu '.' là viết tắt nghìn đồng.
-    """
     try:
         s = str(text).lower().strip()
         is_thousand_k = 'k' in s
-        # Kiểm tra xem có dấu phân cách hàng nghìn (của Việt Nam) không
         has_separator = '.' in s
-
         digits = ''.join(filter(str.isdigit, s))
         if not digits:
-            return "0", 0 # Trả về chuỗi "0" và số 0
-
+            return "0", 0 
         number = int(digits)
-
-        # 1. Nếu có 'k' (ví dụ: 100k -> 100 * 1000)
         if is_thousand_k:
             number *= 1000
-        # 2. Nếu không có 'k' VÀ không có dấu phân cách
-        #    VÀ số đó nhỏ (ví dụ: < 5000)
-        #    thì giả định đây là viết tắt (ví dụ: 100 -> 100.000)
         elif not is_thousand_k and not has_separator and number < 5000:
-            # Ngưỡng 5000 có thể thay đổi nếu cần
             number *= 1000
-
-        # 3. Các trường hợp khác (100.000, 100000, 5000, 1.000) giữ nguyên
-
-        # Trả về chuỗi đã format và số nguyên
         return "{:,}".format(number), number
     except (ValueError, TypeError):
-        # Nếu có lỗi (ví dụ: text không hợp lệ), trả về giá trị mặc định
         return "0", 0
-    
-    
-# ---------------------------------------------
