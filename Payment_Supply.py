@@ -6,6 +6,7 @@ from datetime import datetime
 from menu import show_outer_menu
 import requests
 from io import BytesIO
+from pathlib import Path
 from column import SUPPLY_COLUMNS, SHEETS, ORDER_COLUMNS
 import logging
 import gspread
@@ -28,6 +29,7 @@ def load_bank_map() -> dict:
 
 def escape_mdv2(text: str) -> str:
     if not isinstance(text, str): text = str(text)
+    # Đảm bảo tất cả các ký tự đặc biệt của MarkdownV2 được escape
     escape_chars = r'_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
@@ -150,11 +152,14 @@ async def show_source_payment(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     bank_name = bank_map.get(bank_code, bank_code)
 
+    # Các biến không nằm trong code block vẫn phải được escape
     ten_nguon_md = escape_mdv2(ten_nguon)
     tong_tien_md = escape_mdv2(tong_tien_expected_str)
-    stk_md = escape_mdv2(stk)
     bank_display_md = escape_mdv2(f"{bank_name} ({bank_code})")
     time_range_md = escape_mdv2(context.user_data['payment_range'])
+    
+    # FIX: Không escape stk_md vì nó được đặt trong code block (`stk_md`)
+    stk_md = stk 
 
     caption = (
         f"🏦 *Tên nguồn:* {ten_nguon_md}\n"
@@ -165,7 +170,9 @@ async def show_source_payment(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
     if actual_sum != expected_sum:
         actual_sum_formatted = f"{actual_sum:,} đ"
-        caption += f"\n\n⚠️ *Lưu ý:* Tổng giá nhập thực tế là `{escape_mdv2(actual_sum_formatted)}`, không khớp với số tiền cần thanh toán."
+        # FIX: Không escape actual_sum_formatted vì nó nằm trong code block (`...`), 
+        # và escape dấu chấm cuối cùng của câu hardcode.
+        caption += f"\n\n⚠️ *Lưu ý:* Tổng giá nhập thực tế là `{actual_sum_formatted}`, không khớp với số tiền cần thanh toán\." 
     try:
         qr_url = build_qr_url(stk, bank_code, tong_tien_expected_str, ten_nguon)
         logger.info(f"QR URL tạo ra: {qr_url}")
@@ -176,8 +183,10 @@ async def show_source_payment(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         logger.warning(f"Lỗi tạo QR cho {ten_nguon}: {e}. Hiển thị logo thay thế.")
         try:
-            with open("logo_mavryk.jpg", "rb") as f:
-                photo_input = InputFile(f, filename="logo.png")
+            logo_bytes = Path("logo_mavryk.jpg").read_bytes()
+            logo_stream = BytesIO(logo_bytes)
+            logo_stream.seek(0)
+            photo_input = InputFile(logo_stream, filename="logo.png")
         except Exception as fe:
             logger.error(f"Không thể load logo fallback: {fe}")
             blank_gif = BytesIO(
@@ -195,9 +204,13 @@ async def show_source_payment(update: Update, context: ContextTypes.DEFAULT_TYPE
     if nav_buttons: keyboard.append(nav_buttons)
     keyboard.append([InlineKeyboardButton("✅ Đã Thanh Toán", callback_data=f"source_paid|{index}"), InlineKeyboardButton("🔚 Kết thúc", callback_data="exit_to_main")])
 
+    # --- KHỐI MÃ ĐÃ ĐƯỢC CHỈNH SỬA CHO VIỆC XỬ LÝ LỖI (Không thay đổi) ---
+    if not query or not query.message: 
+        logger.warning("Không tìm thấy CallbackQuery hoặc Message để chỉnh sửa.")
+        return
+
     try:
-        # Dòng 199: Cố gắng chỉnh sửa tin nhắn
-        # Lưu ý: edit_media với InputFile thường sẽ thất bại và chuyển xuống khối except.
+        # Cố gắng chỉnh sửa tin nhắn.
         await query.message.edit_media(
             media=InputMediaPhoto(media=photo_input, caption=caption, parse_mode="MarkdownV2"),
             reply_markup=InlineKeyboardMarkup(keyboard)
@@ -207,12 +220,12 @@ async def show_source_payment(update: Update, context: ContextTypes.DEFAULT_TYPE
         if "Message is not modified" in str(e): 
             await query.answer("Nội dung không thay đổi.")
         else:
-            # Nếu là lỗi khác (ví dụ: do cố gắng tải file byte mới), ta dùng send_photo.
-            # Cần xóa tin nhắn cũ trước khi gửi tin nhắn mới (vì edit_media thất bại)
+            # Nếu là lỗi khác, ta xóa tin nhắn cũ và gửi tin nhắn mới
             try:
+                # Cần bắt ngoại lệ khi xóa vì tin nhắn có thể đã bị xóa
                 await query.message.delete()
-            except Exception:
-                pass # Bỏ qua nếu tin nhắn đã bị xóa
+            except Exception as delete_e:
+                logger.warning(f"Không thể xóa tin nhắn cũ: {delete_e}")
             
             await update.effective_chat.send_photo(
                 photo=photo_input, # Gửi ảnh mới, tải lên từ bytes
@@ -221,8 +234,11 @@ async def show_source_payment(update: Update, context: ContextTypes.DEFAULT_TYPE
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
     except Exception as e:
+        # Bắt bất kỳ lỗi không mong muốn nào khác.
         logger.error(f"Lỗi không xác định khi show_source_payment: {e}")
+        # Dùng edit_message_text để trả lời, an toàn hơn edit_media/delete
         await query.edit_message_text(escape_mdv2(f"❌ Lỗi: {e}"), parse_mode="MarkdownV2")
+    # --- KHỐI MÃ ĐÃ ĐƯỢC CHỈNH SỬA CHO VIỆC XỬ LÝ LỖI KẾT THÚC ---
 
 
 async def handle_source_paid(update: Update, context: ContextTypes.DEFAULT_TYPE):
