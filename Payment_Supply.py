@@ -196,17 +196,26 @@ async def show_source_payment(update: Update, context: ContextTypes.DEFAULT_TYPE
     keyboard.append([InlineKeyboardButton("✅ Đã Thanh Toán", callback_data=f"source_paid|{index}"), InlineKeyboardButton("🔚 Kết thúc", callback_data="exit_to_main")])
 
     try:
+        # Dòng 199: Cố gắng chỉnh sửa tin nhắn
+        # Lưu ý: edit_media với InputFile thường sẽ thất bại và chuyển xuống khối except.
         await query.message.edit_media(
             media=InputMediaPhoto(media=photo_input, caption=caption, parse_mode="MarkdownV2"),
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     except BadRequest as e:
+        # Xử lý khi edit_media thất bại (do dùng InputFile hoặc lỗi khác)
         if "Message is not modified" in str(e): 
             await query.answer("Nội dung không thay đổi.")
         else:
-            await query.message.delete()
+            # Nếu là lỗi khác (ví dụ: do cố gắng tải file byte mới), ta dùng send_photo.
+            # Cần xóa tin nhắn cũ trước khi gửi tin nhắn mới (vì edit_media thất bại)
+            try:
+                await query.message.delete()
+            except Exception:
+                pass # Bỏ qua nếu tin nhắn đã bị xóa
+            
             await update.effective_chat.send_photo(
-                photo=photo_input,
+                photo=photo_input, # Gửi ảnh mới, tải lên từ bytes
                 caption=caption,
                 parse_mode="MarkdownV2",
                 reply_markup=InlineKeyboardMarkup(keyboard)
